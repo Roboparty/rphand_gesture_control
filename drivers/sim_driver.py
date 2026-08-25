@@ -16,20 +16,29 @@ class SimHandDriver(BaseHandDriver):
         self._joint_names = joint_names
         self._positions: List[float] = [0.0] * len(joint_names)
         self._connected = False
+        self._stopped = False
         self._last_log = 0.0
 
     def connect(self) -> bool:
         self._connected = True
+        self._stopped = False
         print("[SimDriver] 仿真灵巧手已连接 (无真实硬件)")
         return True
 
     def disconnect(self) -> None:
+        self.stop()
         self._connected = False
         print("[SimDriver] 仿真灵巧手已断开")
 
+    def stop(self) -> None:
+        if self._stopped:
+            return
+        self._stopped = True
+        print("[SimDriver] 仿真灵巧手已停止")
+
     def set_joint_positions(self, positions: List[float],
                             speed: Optional[List[float]] = None) -> bool:
-        if not self._connected:
+        if not self._connected or self._stopped:
             return False
         self._positions = list(positions)
         # 每 0.5 秒打印一次, 避免刷屏

@@ -81,11 +81,13 @@ class LHandProDriver(BaseHandDriver):
         self._controller = None
         self._dof_active = 0
         self._connected = False
+        self._stopped = False
         self._last_log = 0.0
 
     # ------------------------------------------------------------------
     def connect(self) -> bool:
         try:
+            self._stopped = False
             # 先用显式路径预加载 LHandProLib.dll (全局单例),
             # 控制器内部创建 PyLHandProLib() 时会直接复用
             from lhandprolib_python_sdk.lhandprolib_loader import (
@@ -139,19 +141,26 @@ class LHandProDriver(BaseHandDriver):
             return False
 
     def disconnect(self) -> None:
+        self.stop()
         controller = self._controller
         self._controller = None
         if controller is not None:
-            try:
-                print("[LHandPro] 停止电机并断开...")
-                controller.stop_motors()
-            except Exception as e:
-                print(f"[LHandPro] 停止电机时异常: {e}")
+            print("[LHandPro] 断开控制器...")
             try:
                 controller.disconnect()
             except Exception as e:
                 print(f"[LHandPro] 断开时异常: {e}")
         self._connected = False
+
+    def stop(self) -> None:
+        if self._stopped or self._controller is None:
+            return
+        self._stopped = True
+        try:
+            print("[LHandPro] 停止电机...")
+            self._controller.stop_motors()
+        except Exception as e:
+            print(f"[LHandPro] 停止电机时异常: {e}")
 
     # ------------------------------------------------------------------
     def set_joint_positions(self, positions: List[float],
@@ -161,7 +170,8 @@ class LHandProDriver(BaseHandDriver):
         positions: 长度应等于主动自由度; 若 config 里关节数与手的
                    主动自由度不一致, 自动截断/补 0 并周期性提示。
         """
-        if not self._connected or self._controller is None or self._controller.sdk_handle is None:
+        if (not self._connected or self._stopped or self._controller is None
+                or self._controller.sdk_handle is None):
             return False
 
         pos = [int(p) for p in positions]

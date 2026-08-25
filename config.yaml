@@ -22,6 +22,12 @@ control:
   command_hold_frames: 8  # gesture/rps模式下, 手势需稳定保持的帧数才触发(防抖)
   rps_cooldown_s: 3.0     # rps模式: 每局之间的冷却秒数
 
+safety:
+  tracking:
+    grace_period_s: 0.35          # 短暂遮挡时保持最后姿态的宽限时间
+    lost_action: open             # open=平滑张开 / stop=超过宽限后停机
+    safe_return_duration_s: 1.2   # 平滑回到各关节 range[0] 的时间
+
 driver:
   type: sim               # sim = 仿真(无硬件调试用) / lhandpro = 真实灵巧手(CANFD)
   canfd:

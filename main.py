@@ -24,6 +24,7 @@ import yaml
 
 from app_paths import app_dir, resolve_app_path
 from app_runtime import RuntimeResources
+from control_safety import TrackingState, TrackingWatchdog
 from gesture_recognizer import GestureRecognizer, GESTURE_NAMES_CN, FINGERS
 from gesture_mapping import GestureMapper
 from drivers.sim_driver import SimHandDriver
@@ -181,9 +182,16 @@ def _run(cfg: dict, args, resources: RuntimeResources) -> int:
     mode = cfg["control"]["mode"]
     sending = True
     send_interval = 1.0 / max(cfg["control"]["send_rate_hz"], 1)
+    tracking_cfg = cfg.get("safety", {}).get("tracking", {})
+    watchdog = TrackingWatchdog(
+        safe_positions=[joint["range"][0] for joint in cfg["hand"]["joints"]],
+        grace_period_s=tracking_cfg.get("grace_period_s", 0.35),
+        safe_return_duration_s=tracking_cfg.get("safe_return_duration_s", 1.2),
+        lost_action=tracking_cfg.get("lost_action", "open"),
+    )
     hold_needed = cfg["control"]["command_hold_frames"]
     gesture_history = deque(maxlen=hold_needed)
-    last_sent = 0.0
+    last_sent = float("-inf")
     last_gesture_triggered = None
     # 石头剪刀布状态
     rps_cooldown = cfg["control"].get("rps_cooldown_s", 3.0)
@@ -192,7 +200,7 @@ def _run(cfg: dict, args, resources: RuntimeResources) -> int:
     rps_last_round = 0.0
     rps_round_msg = ""
 
-    print("运行中...  q=退出  m=切换模式  空格=暂停/恢复发送")
+    print("运行中...  q=退出  m=切换模式  空格=暂停/恢复发送  e=紧急停止")
     fail_count = 0
     t_start = time.time()
     try:
@@ -261,23 +269,46 @@ def _run(cfg: dict, args, resources: RuntimeResources) -> int:
             elif mode == "rps":
                 # 玩家收手 -> 重新武装, 允许相同手势再来一局
                 rps_armed = True
+                gesture_history.clear()
+            elif not obs.detected:
+                gesture_history.clear()
 
-            now = time.time()
-            if positions is not None and sending and driver.is_connected \
-                    and now - last_sent >= send_interval:
-                driver.set_joint_positions(positions)
+            now = time.monotonic()
+            decision = watchdog.update(
+                positions,
+                now=now,
+                tracking_detected=obs.detected,
+            )
+            if decision.should_stop:
+                driver.stop()
+                sending = False
+
+            safety_command = (
+                positions is not None
+                or decision.state in {TrackingState.SAFE_RETURN, TrackingState.SAFE_HOLD}
+            )
+            if (decision.target is not None and safety_command and sending
+                    and driver.is_connected and now - last_sent >= send_interval):
+                if driver.set_joint_positions(decision.target):
+                    watchdog.note_output(decision.target)
                 last_sent = now
 
-            if positions is not None:
-                hud_positions = positions
+            if decision.target is not None:
+                hud_positions = decision.target
             else:
                 state = driver.get_state()
                 hud_positions = list(state.values()) if state else [0] * mapper.num_joints
 
+            safety_banner = {
+                TrackingState.GRACE: "TRACKING LOST - HOLDING",
+                TrackingState.SAFE_RETURN: "TRACKING LOST - SAFE RETURN",
+                TrackingState.SAFE_HOLD: "SAFE POSE",
+                TrackingState.STOPPED: "EMERGENCY STOP",
+            }.get(decision.state, "")
             pos_max = max(max(j["range"]) for j in cfg["hand"]["joints"])
             draw_hud(frame, obs, hud_positions, mapper.joint_names,
                      mode, sending, driver.is_connected, pos_max,
-                     banner=rps_round_msg if mode == "rps" else "")
+                     banner=safety_banner or (rps_round_msg if mode == "rps" else ""))
             cv2.imshow("RP-Hand", frame)
 
             key = cv2.waitKey(1) & 0xFF
@@ -292,8 +323,16 @@ def _run(cfg: dict, args, resources: RuntimeResources) -> int:
                 rps_round_msg = ""
                 print(f"切换到 {mode} 模式")
             elif key == ord(" "):
-                sending = not sending
-                print("恢复发送" if sending else "已暂停发送 (灵巧手保持当前姿态)")
+                if watchdog.state is TrackingState.STOPPED:
+                    print("急停已锁定, 请排除故障后重启程序")
+                else:
+                    sending = not sending
+                    print("恢复发送" if sending else "已暂停发送 (灵巧手保持当前姿态)")
+            elif key == ord("e"):
+                if watchdog.force_stop():
+                    driver.stop()
+                    sending = False
+                    print("紧急停止已触发, 需重启程序才能恢复")
     finally:
         resources.close()
     return 0

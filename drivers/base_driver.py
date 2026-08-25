@@ -22,6 +22,11 @@ class BaseHandDriver(ABC):
         ...
 
     @abstractmethod
+    def stop(self) -> None:
+        """立即停止执行器; 重复调用必须安全。"""
+        ...
+
+    @abstractmethod
     def set_joint_positions(self, positions: List[float],
                             speed: Optional[List[float]] = None) -> bool:
         """下发各关节目标位置。

@@ -4,6 +4,7 @@ import sys
 
 import main as app
 from drivers.lhandpro_driver import LHandProDriver
+from drivers.sim_driver import SimHandDriver
 
 
 class FakeRecognizer:
@@ -105,3 +106,24 @@ def test_partial_lhandpro_connection_is_stopped_and_disconnected():
 
     assert controller.stop_calls == 1
     assert controller.disconnect_calls == 1
+
+
+def test_lhandpro_stop_is_idempotent():
+    controller = PartialController()
+    driver = LHandProDriver(library_path="unused")
+    driver._controller = controller
+    driver._connected = True
+
+    driver.stop()
+    driver.stop()
+
+    assert controller.stop_calls == 1
+
+
+def test_sim_driver_rejects_commands_after_stop():
+    driver = SimHandDriver(["joint_1"])
+    driver.connect()
+
+    driver.stop()
+
+    assert driver.set_joint_positions([5000.0]) is False
