@@ -1,0 +1,65 @@
+# ============ 摄像头手势识别 + LHandPro 灵巧手控制 配置 ============
+
+camera:
+  index: 0          # 摄像头编号 (0=内置 Integrated Camera, 1=Lenovo 虚拟摄像头勿用)
+  width: 1280
+  height: 720
+  mirror: true      # 画面镜像（自拍视角，更符合直觉）
+
+recognizer:
+  max_num_hands: 1
+  min_detection_confidence: 0.6
+  min_tracking_confidence: 0.5
+  smooth_factor: 0.4   # 手指弯曲度平滑系数 (0~1, 越大越平滑/越迟钝)
+
+# 控制模式:
+#   mirror  - 连续映射模式: 你的手指实时弯曲多少, 灵巧手就跟着弯多少
+#   gesture - 手势指令模式: 识别到特定手势后, 灵巧手执行对应的预设动作
+#   rps     - 石头剪刀布对战: 识别你出石头/剪刀/布, 机械手出必胜招
+control:
+  mode: rps
+  send_rate_hz: 30        # 指令发送频率上限
+  command_hold_frames: 8  # gesture/rps模式下, 手势需稳定保持的帧数才触发(防抖)
+  rps_cooldown_s: 3.0     # rps模式: 每局之间的冷却秒数
+
+driver:
+  type: sim               # sim = 仿真(无硬件调试用) / lhandpro = 真实灵巧手(CANFD)
+  canfd:
+    # LHandProLib.dll 路径 (相对 main.py 所在目录或绝对路径均可)
+    library_path: "vendor/bin/LHandProLib.dll"
+    node_id: 1            # CANFD 节点 ID, 需与灵巧手配置一致 (厂商默认 1)
+    device_index: null    # CANFD 适配器序号: null = 自动选第一个
+    nom_baudrate: 1000000 # 仲裁域波特率 (厂商默认 1 Mbps)
+    dat_baudrate: 5000000 # 数据域波特率 (厂商默认 5 Mbps)
+    hand_type: 0          # 手型: 0=6自由度 / 1=6S / 2=16自由度
+    hand_direction: 1     # 左右手: 0=右手 / 1=左手
+    enable_motors: true   # 连接后自动使能电机
+    home_motors: true     # 连接后自动回零
+    home_wait_time: 5.0   # 回零等待时间(秒)
+    velocity: 20000       # 位置速度 (厂商示例默认 20000)
+    max_current: 1000     # 最大电流 (厂商示例默认 1000, 过大会夹疼/过小没力)
+
+hand:
+  # 关节通道定义 (默认按 6 主动自由度型号, 与厂商示例一致)。
+  # 位置范围 0~10000: 0=张开, 10000=完全弯曲 (与厂商示例 main.py 一致)。
+  # 若实际方向相反, 把 range 两个数对调即可, 如 [10000, 0]。
+  # src: 由哪个输入驱动
+  #   thumb/index/middle/ring/pinky = 对应手指弯曲度
+  #   thumb_spread = 拇指侧摆张角 (拇指与食指掌骨夹角, 驱动大拇指 roll)
+  #   null = 保持 range[0]
+  joints:
+    - { name: thumb_bend,    src: thumb,        range: [0, 10000] }
+    - { name: thumb_rotate,  src: thumb_spread, range: [0, 10000] }
+    - { name: index_finger,  src: index,  range: [0, 10000] }
+    - { name: middle_finger, src: middle, range: [0, 10000] }
+    - { name: ring_finger,   src: ring,   range: [0, 10000] }
+    - { name: pinky_finger,  src: pinky,  range: [0, 10000] }
+
+# 手势指令模式下的预设动作 (键=手势名, 值=各关节位置, 长度须与 joints 一致)
+presets:
+  open_palm: [0, 0, 0, 0, 0, 0]
+  fist:      [10000, 10000, 10000, 10000, 10000, 10000]
+  pinch:     [8000, 6000, 8500, 0, 0, 0]
+  point:     [10000, 10000, 0, 10000, 10000, 10000]
+  victory:   [10000, 10000, 0, 0, 10000, 10000]
+  thumbs_up: [0, 8000, 10000, 10000, 10000, 10000]
