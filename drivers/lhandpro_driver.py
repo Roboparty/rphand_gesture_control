@@ -131,17 +131,24 @@ class LHandProDriver(BaseHandDriver):
             return True
         except ImportError as e:
             print(f"[LHandPro] 依赖缺失: {e}")
+            self.disconnect()
             return False
         except Exception as e:
             print(f"[LHandPro] 连接异常: {e}")
+            self.disconnect()
             return False
 
     def disconnect(self) -> None:
-        if self._controller is not None and self._connected:
+        controller = self._controller
+        self._controller = None
+        if controller is not None:
             try:
                 print("[LHandPro] 停止电机并断开...")
-                self._controller.stop_motors()
-                self._controller.disconnect()
+                controller.stop_motors()
+            except Exception as e:
+                print(f"[LHandPro] 停止电机时异常: {e}")
+            try:
+                controller.disconnect()
             except Exception as e:
                 print(f"[LHandPro] 断开时异常: {e}")
         self._connected = False

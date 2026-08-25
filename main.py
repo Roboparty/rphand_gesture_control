@@ -23,6 +23,7 @@ import numpy as np
 import yaml
 
 from app_paths import app_dir, resolve_app_path
+from app_runtime import RuntimeResources
 from gesture_recognizer import GestureRecognizer, GESTURE_NAMES_CN, FINGERS
 from gesture_mapping import GestureMapper
 from drivers.sim_driver import SimHandDriver
@@ -122,7 +123,7 @@ def draw_hud(frame, obs, positions, joint_names, mode, sending, driver_ok, pos_m
 
 
 # ----------------------------------------------------------------------
-def main():
+def main(argv=None) -> int:
     if sys.platform == "win32":
         # 控制台切 UTF-8 并设置窗口标题, 避免中文日志乱码
         os.system("chcp 65001 >nul & title RP-Hand手势识别")
@@ -133,7 +134,7 @@ def main():
                     help="覆盖 config 的控制模式 (rps=石头剪刀布对战)")
     ap.add_argument("--camera", type=int, default=None, help="覆盖 config 的摄像头编号")
     ap.add_argument("--duration", type=float, default=None, help="运行 N 秒后自动安全退出 (默认不限)")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
     if args.driver:
@@ -143,6 +144,12 @@ def main():
     if args.camera is not None:
         cfg["camera"]["index"] = args.camera
 
+    with RuntimeResources(destroy_windows=cv2.destroyAllWindows) as resources:
+        return _run(cfg, args, resources)
+
+
+def _run(cfg: dict, args, resources: RuntimeResources) -> int:
+
     rcfg = cfg["recognizer"]
     recognizer = GestureRecognizer(
         max_num_hands=rcfg["max_num_hands"],
@@ -150,10 +157,13 @@ def main():
         min_tracking_confidence=rcfg["min_tracking_confidence"],
         smooth_factor=rcfg["smooth_factor"],
     )
+    resources.recognizer = recognizer
     mapper = GestureMapper(cfg["hand"]["joints"], cfg.get("presets", {}))
     driver = make_driver(cfg, mapper.joint_names)
+    resources.driver = driver
     if not driver.connect():
         print("驱动连接失败, 可先用 --driver sim 调试手势识别部分。")
+        return 1
 
     ccfg = cfg["camera"]
     # Windows 上部分摄像头用默认 MSMF 后端抓不到帧, 强制 DirectShow
@@ -161,11 +171,12 @@ def main():
         cap = cv2.VideoCapture(ccfg["index"], cv2.CAP_DSHOW)
     else:
         cap = cv2.VideoCapture(ccfg["index"])
+    resources.camera = cap
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, ccfg["width"])
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, ccfg["height"])
     if not cap.isOpened():
         print(f"无法打开摄像头 {ccfg['index']}")
-        return
+        return 1
 
     mode = cfg["control"]["mode"]
     sending = True
@@ -284,11 +295,9 @@ def main():
                 sending = not sending
                 print("恢复发送" if sending else "已暂停发送 (灵巧手保持当前姿态)")
     finally:
-        cap.release()
-        cv2.destroyAllWindows()
-        recognizer.close()
-        driver.disconnect()
+        resources.close()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
