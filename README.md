@@ -47,6 +47,29 @@ python main.py --driver lhandpro --mode gesture
 连接流程：扫描 CANFD 适配器（`device_index` 可指定）→ 使能电机 → 回零（约 5 秒）→ 开始跟随。
 **回零和动作前请确保手周围没有遮挡物。**
 
+## Electron 窗口
+
+Electron 版本完整显示原 OpenCV 摄像头画面和右侧 HUD，只额外提供一个急停按钮。原有
+`Q`、`M`、`空格`、`E` 快捷键保持不变；点击急停后会锁定，排除故障并重启程序后才能恢复。
+
+开发运行：
+
+```bash
+cd electron
+npm install
+npm start
+```
+
+生成 Windows 安装程序：
+
+```bash
+cd electron
+npm run dist:win
+```
+
+安装包默认沿用 `config.yaml`。仓库继续以 `driver.type: sim` 作为安全默认值；连接真手前请明确
+改为 `lhandpro`，并确认 CAN-FD、急停和机械限位均已就绪。
+
 ## 配置说明（config.yaml）
 
 | 配置项 | 说明 |
@@ -66,6 +89,8 @@ python main.py --driver lhandpro --mode gesture
 ```
 gesture_hand_control/
 ├── main.py                  # 主程序：采集 → 识别 → 映射 → 下发 → HUD
+├── electron_bridge.py       # Electron 与 Python 的非阻塞帧/命令桥接
+├── electron/                # Electron 窗口、测试和 Windows 打包配置
 ├── test_connection.py       # CANFD 硬件连通性冒烟测试
 ├── gesture_recognizer.py    # MediaPipe 21 点检测、手指弯曲度、手势分类
 ├── gesture_mapping.py       # 弯曲度/手势 → 灵巧手关节位置

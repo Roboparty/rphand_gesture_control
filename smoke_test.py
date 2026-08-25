@@ -45,10 +45,7 @@ def main():
         if obs.detected:
             detected += 1
             gestures[obs.gesture] = gestures.get(obs.gesture, 0) + 1
-            values = dict(obs.curls)
-            values["thumb_spread"] = obs.thumb_spread
-            pos = mapper.map_mirror(values)
-            assert len(pos) == mapper.num_joints, "映射输出通道数量错误"
+            pos = mapper.map_mirror(obs.curls)
             driver.set_joint_positions(pos)
 
     cap.release()

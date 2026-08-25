@@ -5,8 +5,11 @@ import sys
 
 
 def app_dir() -> str:
-    """应用根目录: 打包后为 exe 所在目录, 源码运行为项目根目录。"""
+    """应用资源目录: 兼容源码运行和 PyInstaller one-folder 包。"""
     if getattr(sys, "frozen", False):
+        bundle_dir = getattr(sys, "_MEIPASS", None)
+        if bundle_dir:
+            return os.path.abspath(bundle_dir)
         return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
 

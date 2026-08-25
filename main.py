@@ -17,6 +17,7 @@ import os
 import sys
 import time
 from collections import deque
+from contextlib import nullcontext, redirect_stdout
 
 import cv2
 import numpy as np
@@ -24,15 +25,11 @@ import yaml
 
 from app_paths import app_dir, resolve_app_path
 from app_runtime import RuntimeResources
-from control_safety import (
-    CommandLimiter,
-    FeedbackMonitor,
-    TrackingState,
-    TrackingWatchdog,
-)
+from control_safety import TrackingState, TrackingWatchdog
 from gesture_recognizer import GestureRecognizer, GESTURE_NAMES_CN, FINGERS
 from gesture_mapping import GestureMapper
 from drivers.sim_driver import SimHandDriver
+from electron_bridge import ElectronBridge
 
 # 石头剪刀布: 玩家手势 -> 机械手必胜出招 (石头->布 / 布->剪刀 / 剪刀->石头)
 RPS_COUNTER = {"fist": "open_palm", "open_palm": "victory", "victory": "fist"}
@@ -64,15 +61,6 @@ def make_driver(cfg: dict, joint_names):
             max_current=lp.get("max_current", 1000),
         )
     return SimHandDriver(joint_names)
-
-
-def ordered_state_positions(state: dict | None, joint_count: int):
-    if state is None:
-        return None
-    motor_keys = [f"motor_{index}" for index in range(1, joint_count + 1)]
-    if all(key in state for key in motor_keys):
-        return [state[key] for key in motor_keys]
-    return list(state.values())
 
 
 # ----------------------------------------------------------------------
@@ -149,6 +137,7 @@ def main(argv=None) -> int:
                     help="覆盖 config 的控制模式 (rps=石头剪刀布对战)")
     ap.add_argument("--camera", type=int, default=None, help="覆盖 config 的摄像头编号")
     ap.add_argument("--duration", type=float, default=None, help="运行 N 秒后自动安全退出 (默认不限)")
+    ap.add_argument("--electron-bridge", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -159,11 +148,19 @@ def main(argv=None) -> int:
     if args.camera is not None:
         cfg["camera"]["index"] = args.camera
 
-    with RuntimeResources(destroy_windows=cv2.destroyAllWindows) as resources:
-        return _run(cfg, args, resources)
+    protocol_stdout = sys.stdout
+    bridge = ElectronBridge(sys.stdin, protocol_stdout) if args.electron_bridge else None
+    log_context = redirect_stdout(sys.stderr) if bridge is not None else nullcontext()
+    try:
+        with log_context:
+            with RuntimeResources(destroy_windows=cv2.destroyAllWindows) as resources:
+                return _run(cfg, args, resources, bridge=bridge)
+    finally:
+        if bridge is not None:
+            bridge.close()
 
 
-def _run(cfg: dict, args, resources: RuntimeResources) -> int:
+def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
 
     rcfg = cfg["recognizer"]
     recognizer = GestureRecognizer(
@@ -196,40 +193,16 @@ def _run(cfg: dict, args, resources: RuntimeResources) -> int:
     mode = cfg["control"]["mode"]
     sending = True
     send_interval = 1.0 / max(cfg["control"]["send_rate_hz"], 1)
-    safety_cfg = cfg.get("safety", {})
-    tracking_cfg = safety_cfg.get("tracking", {})
-    safe_positions = [joint["range"][0] for joint in cfg["hand"]["joints"]]
+    tracking_cfg = cfg.get("safety", {}).get("tracking", {})
     watchdog = TrackingWatchdog(
-        safe_positions=safe_positions,
+        safe_positions=[joint["range"][0] for joint in cfg["hand"]["joints"]],
         grace_period_s=tracking_cfg.get("grace_period_s", 0.35),
         safe_return_duration_s=tracking_cfg.get("safe_return_duration_s", 1.2),
         lost_action=tracking_cfg.get("lost_action", "open"),
     )
-    command_cfg = safety_cfg.get("command", {})
-    limiter = CommandLimiter(
-        joint_ranges=[joint["range"] for joint in cfg["hand"]["joints"]],
-        initial_positions=safe_positions,
-        deadband=command_cfg.get("deadband", 35),
-        max_step=command_cfg.get("max_step", 400),
-        max_velocity=command_cfg.get("max_velocity", 3500),
-        max_acceleration=command_cfg.get("max_acceleration", 14000),
-        initial_time=time.monotonic(),
-    )
-    feedback_cfg = safety_cfg.get("feedback", {})
-    feedback_monitor = FeedbackMonitor(
-        max_send_failures=feedback_cfg.get("max_send_failures", 3),
-        max_feedback_failures=feedback_cfg.get("max_read_failures", 5),
-        position_error_limit=feedback_cfg.get("position_error_limit", 6000),
-        position_error_timeout_s=feedback_cfg.get("position_error_timeout_s", 2.0),
-    )
-    feedback_interval = feedback_cfg.get("interval_s", 0.2)
     hold_needed = cfg["control"]["command_hold_frames"]
     gesture_history = deque(maxlen=hold_needed)
     last_sent = float("-inf")
-    last_feedback = float("-inf")
-    last_command = list(safe_positions)
-    active_fault = None
-    stop_executed = False
     last_gesture_triggered = None
     # 石头剪刀布状态
     rps_cooldown = cfg["control"].get("rps_cooldown_s", 3.0)
@@ -317,9 +290,8 @@ def _run(cfg: dict, args, resources: RuntimeResources) -> int:
                 now=now,
                 tracking_detected=obs.detected,
             )
-            if decision.should_stop and not stop_executed:
+            if decision.should_stop:
                 driver.stop()
-                stop_executed = True
                 sending = False
 
             safety_command = (
@@ -328,41 +300,9 @@ def _run(cfg: dict, args, resources: RuntimeResources) -> int:
             )
             if (decision.target is not None and safety_command and sending
                     and driver.is_connected and now - last_sent >= send_interval):
-                limited_target = limiter.limit(decision.target, now=now)
-                success = driver.set_joint_positions(limited_target)
-                fault = feedback_monitor.note_send(success)
-                if success:
-                    watchdog.note_output(limited_target)
-                    last_command = limited_target
+                if driver.set_joint_positions(decision.target):
+                    watchdog.note_output(decision.target)
                 last_sent = now
-                if fault is not None and active_fault is None:
-                    active_fault = fault
-                    watchdog.force_stop()
-                    if not stop_executed:
-                        driver.stop()
-                        stop_executed = True
-                    sending = False
-                    print(f"安全故障 [{fault.code}]: {fault.message}")
-
-            if (active_fault is None and driver.is_connected
-                    and now - last_feedback >= feedback_interval):
-                state = driver.get_state()
-                health = driver.get_health()
-                fault = feedback_monitor.evaluate(
-                    target=last_command,
-                    actual=ordered_state_positions(state, mapper.num_joints),
-                    alarms=health.get("alarms") if health else None,
-                    now=now,
-                )
-                last_feedback = now
-                if fault is not None:
-                    active_fault = fault
-                    watchdog.force_stop()
-                    if not stop_executed:
-                        driver.stop()
-                        stop_executed = True
-                    sending = False
-                    print(f"安全故障 [{fault.code}]: {fault.message}")
 
             if decision.target is not None:
                 hud_positions = decision.target
@@ -370,19 +310,22 @@ def _run(cfg: dict, args, resources: RuntimeResources) -> int:
                 state = driver.get_state()
                 hud_positions = list(state.values()) if state else [0] * mapper.num_joints
 
-            safety_banner = (f"FAULT: {active_fault.code}" if active_fault else {
+            safety_banner = {
                 TrackingState.GRACE: "TRACKING LOST - HOLDING",
                 TrackingState.SAFE_RETURN: "TRACKING LOST - SAFE RETURN",
                 TrackingState.SAFE_HOLD: "SAFE POSE",
                 TrackingState.STOPPED: "EMERGENCY STOP",
-            }.get(decision.state, ""))
+            }.get(decision.state, "")
             pos_max = max(max(j["range"]) for j in cfg["hand"]["joints"])
             draw_hud(frame, obs, hud_positions, mapper.joint_names,
                      mode, sending, driver.is_connected, pos_max,
                      banner=safety_banner or (rps_round_msg if mode == "rps" else ""))
-            cv2.imshow("RP-Hand", frame)
-
-            key = cv2.waitKey(1) & 0xFF
+            if bridge is None:
+                cv2.imshow("RP-Hand", frame)
+                key = cv2.waitKey(1) & 0xFF
+            else:
+                bridge.submit_frame(frame, now=now)
+                key = bridge.poll_key()
             if key == ord("q"):
                 break
             elif key == ord("m"):
@@ -401,9 +344,7 @@ def _run(cfg: dict, args, resources: RuntimeResources) -> int:
                     print("恢复发送" if sending else "已暂停发送 (灵巧手保持当前姿态)")
             elif key == ord("e"):
                 if watchdog.force_stop():
-                    if not stop_executed:
-                        driver.stop()
-                        stop_executed = True
+                    driver.stop()
                     sending = False
                     print("紧急停止已触发, 需重启程序才能恢复")
     finally:

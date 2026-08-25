@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RP-Hand</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main id="stage" aria-label="RP-Hand camera control view">
+      <img id="frame" alt="Live hand tracking and RP-Hand status">
+      <button
+        id="emergency-stop"
+        type="button"
+        aria-pressed="false"
+      >EMERGENCY STOP</button>
+      <p id="process-state" role="status" aria-live="polite" hidden></p>
+    </main>
+    <script src="layout.cjs"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

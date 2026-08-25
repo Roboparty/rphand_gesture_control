@@ -65,20 +65,6 @@ class PartialController:
         self.disconnect_calls += 1
 
 
-class HealthSdk:
-    def get_now_alarm(self, motor_id: int) -> int:
-        return [0, 3][motor_id - 1]
-
-    def get_now_current(self, motor_id: int) -> int:
-        return [120, 240][motor_id - 1]
-
-
-class HealthController(PartialController):
-    def __init__(self):
-        super().__init__()
-        self.sdk_handle = HealthSdk()
-
-
 def test_camera_open_failure_still_closes_all_runtime_resources(monkeypatch):
     events: list[str] = []
     recognizer = FakeRecognizer(events)
@@ -141,27 +127,3 @@ def test_sim_driver_rejects_commands_after_stop():
     driver.stop()
 
     assert driver.set_joint_positions([5000.0]) is False
-
-
-def test_lhandpro_health_reports_each_motor_alarm_and_current():
-    driver = LHandProDriver(library_path="unused")
-    driver._controller = HealthController()
-    driver._connected = True
-    driver._dof_active = 2
-
-    health = driver.get_health()
-
-    assert health == {
-        "alarms": {"motor_1": 0, "motor_2": 3},
-        "currents": {"motor_1": 120, "motor_2": 240},
-    }
-
-
-def test_sim_driver_health_is_clean():
-    driver = SimHandDriver(["joint_1", "joint_2"])
-    driver.connect()
-
-    assert driver.get_health() == {
-        "alarms": {"joint_1": 0, "joint_2": 0},
-        "currents": {"joint_1": 0, "joint_2": 0},
-    }

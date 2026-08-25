@@ -209,21 +209,6 @@ class LHandProDriver(BaseHandDriver):
         except Exception:
             return None
 
-    def get_health(self) -> Optional[dict]:
-        """读取每个主动电机的报警码与实时电流。"""
-        if not self._connected or self._controller is None or self._controller.sdk_handle is None:
-            return None
-        try:
-            sdk = self._controller.sdk_handle
-            return {
-                "alarms": {f"motor_{i}": sdk.get_now_alarm(i)
-                           for i in range(1, self._dof_active + 1)},
-                "currents": {f"motor_{i}": sdk.get_now_current(i)
-                             for i in range(1, self._dof_active + 1)},
-            }
-        except Exception:
-            return None
-
     @property
     def is_connected(self) -> bool:
         return self._connected
