@@ -27,6 +27,17 @@ safety:
     grace_period_s: 0.35          # 短暂遮挡时保持最后姿态的宽限时间
     lost_action: open             # open=平滑张开 / stop=超过宽限后停机
     safe_return_duration_s: 1.2   # 平滑回到各关节 range[0] 的时间
+  command:
+    deadband: 35                  # 小于此位置差的抖动不下发
+    max_step: 400                 # 单次命令允许的最大位置变化
+    max_velocity: 3500            # 每秒最大位置变化
+    max_acceleration: 14000       # 每秒速度变化上限
+  feedback:
+    interval_s: 0.2               # 状态与报警读取周期
+    max_send_failures: 3          # 连续下发失败达到此值后停机
+    max_read_failures: 5          # 连续位置反馈失败达到此值后停机
+    position_error_limit: 6000    # 目标与实际位置允许的最大误差
+    position_error_timeout_s: 2.0 # 误差持续超限多久后停机
 
 driver:
   type: sim               # sim = 仿真(无硬件调试用) / lhandpro = 真实灵巧手(CANFD)

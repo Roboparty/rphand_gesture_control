@@ -39,6 +39,10 @@ class BaseHandDriver(ABC):
         """读取灵巧手当前状态(温度/电流/位置等), 不支持则返回 None。"""
         return None
 
+    def get_health(self) -> Optional[dict]:
+        """读取报警、电流等健康状态, 不支持则返回 None。"""
+        return None
+
     @property
     @abstractmethod
     def is_connected(self) -> bool:

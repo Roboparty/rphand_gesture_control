@@ -52,6 +52,12 @@ class SimHandDriver(BaseHandDriver):
     def get_state(self) -> Optional[dict]:
         return dict(zip(self._joint_names, self._positions))
 
+    def get_health(self) -> Optional[dict]:
+        return {
+            "alarms": {name: 0 for name in self._joint_names},
+            "currents": {name: 0 for name in self._joint_names},
+        }
+
     @property
     def is_connected(self) -> bool:
         return self._connected
