@@ -22,6 +22,15 @@ test('keeps every interactive control at least 44 pixels tall', () => {
   assert.match(css, /#detection-toggle[\s\S]*?min-height:\s*44px/);
   assert.match(css, /#mode-select[\s\S]*?min-height:\s*44px/);
   assert.match(css, /#emergency-stop[\s\S]*?min-height:\s*44px/);
+  assert.match(css, /#recover-control[\s\S]*?min-height:\s*44px/);
+});
+
+test('requires confirmation and a stopped backend before control recovery', () => {
+  assert.match(html, /id="recover-control"/);
+  assert.match(html, /id="recover-control"[\s\S]*?disabled/);
+  assert.match(appJs, /window\.confirm/);
+  assert.match(appJs, /sendCommand\('recover_control'\)/);
+  assert.match(appJs, /state\.safety_state\s*===\s*'stopped'/);
 });
 
 test('keeps emergency and quit shortcuts available while a control has focus', () => {

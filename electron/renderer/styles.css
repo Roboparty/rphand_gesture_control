@@ -111,15 +111,34 @@ body,
 }
 
 #detection-toggle:focus-visible,
-#mode-select:focus-visible {
+#mode-select:focus-visible,
+#recover-control:focus-visible {
   outline: 2px solid #1769e0;
   outline-offset: 2px;
 }
 
 #detection-toggle:disabled,
-#mode-select:disabled {
+#mode-select:disabled,
+#recover-control:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+#recover-control {
+  width: 148px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid #1769e0;
+  border-radius: 6px;
+  background: #fff;
+  color: #175fbf;
+  font: 600 14px/1 Arial, Helvetica, sans-serif;
+  cursor: pointer;
+}
+
+#recover-control:not(:disabled):hover {
+  background: #eaf3ff;
 }
 
 #emergency-stop {
@@ -176,6 +195,10 @@ body,
   }
 
   #mode-select {
+    width: 100%;
+  }
+
+  #recover-control {
     width: 100%;
   }
 }

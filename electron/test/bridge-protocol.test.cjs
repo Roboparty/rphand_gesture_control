@@ -15,6 +15,10 @@ test('serializes the existing controls and the new explicit GUI controls', () =>
     '{"type":"command","command":"emergency_stop"}\n',
   );
   assert.equal(
+    commandLine('recover_control'),
+    '{"type":"command","command":"recover_control"}\n',
+  );
+  assert.equal(
     commandLine('toggle_detection'),
     '{"type":"command","command":"toggle_detection"}\n',
   );
@@ -43,6 +47,7 @@ test('preserves validated Python runtime state on a frame', () => {
       mode: 'rps',
       detection_enabled: false,
       sending: true,
+      safety_state: 'stopped',
     },
   }));
 
@@ -50,12 +55,29 @@ test('preserves validated Python runtime state on a frame', () => {
     mode: 'rps',
     detection_enabled: false,
     sending: true,
+    safety_state: 'stopped',
   });
   assert.equal(parseFrameLine(JSON.stringify({
     type: 'frame',
     sequence: 9,
     jpeg: 'YWJj',
-    state: { mode: 'invalid', detection_enabled: true, sending: true },
+    state: {
+      mode: 'invalid',
+      detection_enabled: true,
+      sending: true,
+      safety_state: 'tracking',
+    },
+  })), null);
+  assert.equal(parseFrameLine(JSON.stringify({
+    type: 'frame',
+    sequence: 10,
+    jpeg: 'YWJj',
+    state: {
+      mode: 'mirror',
+      detection_enabled: true,
+      sending: true,
+      safety_state: 'invalid',
+    },
   })), null);
 });
 

@@ -3,9 +3,11 @@ const frame = document.getElementById('frame');
 const controlPanel = document.getElementById('control-panel');
 const detectionToggle = document.getElementById('detection-toggle');
 const modeSelect = document.getElementById('mode-select');
+const recoveryButton = document.getElementById('recover-control');
 const stopButton = document.getElementById('emergency-stop');
 const processState = document.getElementById('process-state');
 let emergencyLatched = false;
+let emergencyRequested = false;
 let pendingDetection = null;
 let pendingMode = null;
 
@@ -36,6 +38,18 @@ function updateLayout() {
 
 function applyRuntimeState(state) {
   if (!state) return;
+  const stopped = state.safety_state === 'stopped';
+  if (stopped) {
+    emergencyRequested = false;
+    emergencyLatched = true;
+  } else if (!emergencyRequested) {
+    emergencyLatched = false;
+  }
+  stopButton.dataset.latched = emergencyLatched ? 'true' : 'false';
+  stopButton.setAttribute('aria-pressed', emergencyLatched ? 'true' : 'false');
+  recoveryButton.disabled = !stopped;
+  detectionToggle.disabled = stopped;
+  modeSelect.disabled = stopped;
   if (pendingDetection === state.detection_enabled) {
     pendingDetection = null;
   }
@@ -55,13 +69,23 @@ function applyRuntimeState(state) {
 
 function emergencyStop() {
   if (emergencyLatched) return;
+  emergencyRequested = true;
   emergencyLatched = true;
   stopButton.dataset.latched = 'true';
   stopButton.setAttribute('aria-pressed', 'true');
   window.rpHand.sendCommand('emergency_stop');
 }
 
+function recoverControl() {
+  if (!emergencyLatched || recoveryButton.disabled) return;
+  const confirmed = window.confirm(
+    '请确认灵巧手周围无障碍物。恢复后将保持识别与发送关闭，并先安全回张。',
+  );
+  if (confirmed) window.rpHand.sendCommand('recover_control');
+}
+
 stopButton.addEventListener('click', emergencyStop);
+recoveryButton.addEventListener('click', recoverControl);
 detectionToggle.addEventListener('click', () => {
   pendingDetection = detectionToggle.getAttribute('aria-checked') !== 'true';
   detectionToggle.setAttribute('aria-checked', pendingDetection ? 'true' : 'false');
@@ -78,7 +102,8 @@ window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
   if (key === 'q') window.rpHand.sendCommand('quit');
   if (key === 'e') emergencyStop();
-  if (key === 'q' || key === 'e') return;
+  if (key === 'r') recoverControl();
+  if (key === 'q' || key === 'e' || key === 'r') return;
   if (event.target.closest('button, select, input, textarea, a')) return;
   if (key === 'm') window.rpHand.sendCommand('cycle_mode');
   if (event.code === 'Space') {
@@ -96,6 +121,7 @@ window.rpHand.onFrame(({ jpeg, state }) => {
 window.rpHand.onProcessState((state) => {
   if (state.running) return;
   stopButton.disabled = true;
+  recoveryButton.disabled = true;
   detectionToggle.disabled = true;
   modeSelect.disabled = true;
   processState.textContent = state.error

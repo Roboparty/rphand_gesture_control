@@ -19,7 +19,7 @@ function computeLayout(stageWidth, stageHeight, imageWidth, imageHeight) {
   const inset = 16 * scale;
   const stopHeight = Math.max(44, 52 * scale);
   const controlsGap = Math.max(8, 12 * scale);
-  const controlsHeight = Math.max(112, 128 * scale);
+  const controlsHeight = Math.max(156, 176 * scale);
   const stopTop = top + height - stopHeight - inset;
   const controlWidth = Math.max(0, panelWidth - inset * 2);
   return {

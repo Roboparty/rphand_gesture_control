@@ -5,6 +5,7 @@ const ALLOWED_COMMANDS = new Set([
   'cycle_mode',
   'toggle_pause',
   'emergency_stop',
+  'recover_control',
   'toggle_detection',
   'mode_mirror',
   'mode_gesture',
@@ -12,6 +13,14 @@ const ALLOWED_COMMANDS = new Set([
 ]);
 
 const VALID_MODES = new Set(['mirror', 'gesture', 'rps']);
+const VALID_SAFETY_STATES = new Set([
+  'waiting',
+  'tracking',
+  'grace',
+  'safe_return',
+  'safe_hold',
+  'stopped',
+]);
 
 function commandLine(command) {
   if (!ALLOWED_COMMANDS.has(command)) {
@@ -38,6 +47,7 @@ function parseFrameLine(line) {
         || !VALID_MODES.has(payload.state.mode)
         || typeof payload.state.detection_enabled !== 'boolean'
         || typeof payload.state.sending !== 'boolean'
+        || !VALID_SAFETY_STATES.has(payload.state.safety_state)
       )
     ) {
       return null;
