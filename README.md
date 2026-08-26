@@ -47,10 +47,23 @@ python main.py --driver lhandpro --mode gesture
 连接流程：扫描 CANFD 适配器（`device_index` 可指定）→ 使能电机 → 回零（约 5 秒）→ 开始跟随。
 **回零和动作前请确保手周围没有遮挡物。**
 
+## 手指角度采样（不连接灵巧手）
+
+调整手指几何映射前，先采集真实张手和握拳的角度范围：
+
+```bash
+python capture_geometry_ranges.py --camera 0
+```
+
+窗口中按 `O` 采集完全张开的手掌，按 `F` 采集完全握拳，按 `Q` 退出。两种姿态都采集完成后，
+报告会写入 `diagnostics/hand_geometry_ranges.json`。这个程序不会加载驱动、连接 CAN-FD 或发送关节指令。
+
 ## Electron 窗口
 
-Electron 版本完整显示原 OpenCV 摄像头画面和右侧 HUD，只额外提供一个急停按钮。原有
-`Q`、`M`、`空格`、`E` 快捷键保持不变；点击急停后会锁定，排除故障并重启程序后才能恢复。
+Electron 版本完整显示原 OpenCV 摄像头画面，并使用不透明的浅色右侧数据栏。界面提供手部识别
+开关、`mirror / gesture / rps` 模式选择和急停按钮。关闭手部识别后摄像头画面仍会刷新，但会跳过
+MediaPipe 识别，并沿用丢手看门狗让灵巧手安全回到张开位置。原有 `Q`、`M`、`空格`、`E`
+快捷键保持不变；点击急停后会锁定，排除故障并重启程序后才能恢复。
 
 开发运行：
 
@@ -67,8 +80,9 @@ cd electron
 npm run dist:win
 ```
 
-安装包默认沿用 `config.yaml`。仓库继续以 `driver.type: sim` 作为安全默认值；连接真手前请明确
-改为 `lhandpro`，并确认 CAN-FD、急停和机械限位均已就绪。
+Electron 安装包默认以 `lhandpro` 启动并连接真实灵巧手；运行前请确认 CAN-FD、急停和机械限位
+均已就绪。命令行/TUI 仍沿用 `config.yaml` 中的 `driver.type: sim` 安全默认值。Electron 开发调试
+如需使用仿真驱动，可先设置环境变量 `RP_HAND_DRIVER=sim` 再执行 `npm start`。
 
 ## 配置说明（config.yaml）
 
@@ -80,6 +94,7 @@ npm run dist:win
 | `driver.canfd.nom_baudrate` / `dat_baudrate` | 仲裁域 1 Mbps / 数据域 5 Mbps（厂商默认） |
 | `driver.canfd.velocity` / `max_current` | 运动速度 / 最大电流（厂商默认 20000 / 1000） |
 | `camera.index` | 摄像头编号（本机 0/1 均可用，已强制 DirectShow 后端） |
+| `hand.input_calibration` | 真机张开端校正；`open` 对应完全张手时 MediaPipe 的残余输入，校正后输出为 0 |
 | `hand.joints` | 关节映射：0=张开、10000=完全弯曲；方向反了就把 range 对调成 `[10000, 0]` |
 | `presets` | gesture 模式下各手势的预设关节位置 |
 | `recognizer.smooth_factor` | 手势防抖平滑系数 |
@@ -92,6 +107,8 @@ gesture_hand_control/
 ├── electron_bridge.py       # Electron 与 Python 的非阻塞帧/命令桥接
 ├── electron/                # Electron 窗口、测试和 Windows 打包配置
 ├── test_connection.py       # CANFD 硬件连通性冒烟测试
+├── capture_geometry_ranges.py # 摄像头角度采样，不连接灵巧手
+├── geometry_diagnostics.py  # 原始 PIP/DIP/旧版角度测量与统计
 ├── gesture_recognizer.py    # MediaPipe 21 点检测、手指弯曲度、手势分类
 ├── gesture_mapping.py       # 弯曲度/手势 → 灵巧手关节位置
 ├── config.yaml              # 全部可调参数
