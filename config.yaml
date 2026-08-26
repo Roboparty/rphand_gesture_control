@@ -17,7 +17,7 @@ recognizer:
 #   gesture - 手势指令模式: 识别到特定手势后, 灵巧手执行对应的预设动作
 #   rps     - 石头剪刀布对战: 识别你出石头/剪刀/布, 机械手出必胜招
 control:
-  mode: rps
+  mode: mirror
   send_rate_hz: 30        # 指令发送频率上限
   command_hold_frames: 8  # gesture/rps模式下, 手势需稳定保持的帧数才触发(防抖)
   rps_cooldown_s: 3.0     # rps模式: 每局之间的冷却秒数
@@ -46,6 +46,16 @@ driver:
     max_current: 1000     # 最大电流 (厂商示例默认 1000, 过大会夹疼/过小没力)
 
 hand:
+  # 2026-08-26 真机张手采样。MediaPipe 在完全伸直时仍输出约 19%~26%，
+  # mirror 模式会将 open 重新映射为 0，并保持 closed=1 不变。
+  input_calibration:
+    thumb:        { open: 0.2057 }
+    thumb_spread: { open: 0.1617 }
+    index:        { open: 0.2576 }
+    middle:       { open: 0.2607 }
+    ring:         { open: 0.1893 }
+    pinky:        { open: 0.2296 }
+
   # 关节通道定义 (默认按 6 主动自由度型号, 与厂商示例一致)。
   # 位置范围 0~10000: 0=张开, 10000=完全弯曲 (与厂商示例 main.py 一致)。
   # 若实际方向相反, 把 range 两个数对调即可, 如 [10000, 0]。
