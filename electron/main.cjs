@@ -25,10 +25,12 @@ function sendProcessState(state) {
 
 function startPython() {
   const projectRoot = path.resolve(__dirname, '..');
+  const driver = process.env.RP_HAND_DRIVER === 'sim' ? 'sim' : 'lhandpro';
   const launch = resolvePythonLaunch({
     projectRoot,
     packaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
+    driver,
   });
   pythonProcess = spawn(launch.executable, launch.args, {
     cwd: launch.cwd,

@@ -22,6 +22,12 @@ test('fits a wide Python frame without cropping and keeps stop inside HUD', () =
     layout.stop.left + layout.stop.width <= layout.frame.left + layout.frame.width,
     true,
   );
+  assert.equal(layout.controls.left, layout.stop.left);
+  assert.equal(layout.controls.width, layout.stop.width);
+  assert.equal(
+    layout.controls.top + layout.controls.height < layout.stop.top,
+    true,
+  );
 });
 
 test('letterboxes the frame in a tall window', () => {
@@ -32,6 +38,21 @@ test('letterboxes the frame in a tall window', () => {
   assert.equal(layout.frame.top, 346.875);
   assert.equal(
     layout.stop.top + layout.stop.height <= layout.frame.top + layout.frame.height,
+    true,
+  );
+  assert.equal(layout.controls.top >= layout.frame.top, true);
+});
+
+test('keeps controls inside a narrow window when the camera returns a larger frame', () => {
+  const layout = computeLayout(640, 360, 1920, 1080);
+
+  assert.equal(layout.controls.left >= layout.frame.left, true);
+  assert.equal(
+    layout.controls.left + layout.controls.width <= layout.frame.left + layout.frame.width,
+    true,
+  );
+  assert.equal(
+    layout.stop.left + layout.stop.width <= layout.frame.left + layout.frame.width,
     true,
   );
 });

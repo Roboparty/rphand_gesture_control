@@ -18,12 +18,22 @@ function computeLayout(stageWidth, stageHeight, imageWidth, imageHeight) {
   const panelWidth = Math.min(320 * scale, width);
   const inset = 16 * scale;
   const stopHeight = Math.max(44, 52 * scale);
+  const controlsGap = Math.max(8, 12 * scale);
+  const controlsHeight = Math.max(112, 128 * scale);
+  const stopTop = top + height - stopHeight - inset;
+  const controlWidth = Math.max(0, panelWidth - inset * 2);
   return {
     frame: { left, top, width, height },
+    controls: {
+      left: left + width - panelWidth + inset,
+      top: stopTop - controlsGap - controlsHeight,
+      width: controlWidth,
+      height: controlsHeight,
+    },
     stop: {
       left: left + width - panelWidth + inset,
-      top: top + height - stopHeight - inset,
-      width: Math.max(120, panelWidth - inset * 2),
+      top: stopTop,
+      width: controlWidth,
       height: stopHeight,
     },
   };

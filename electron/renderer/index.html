@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,13 +7,33 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <main id="stage" aria-label="RP-Hand camera control view">
-      <img id="frame" alt="Live hand tracking and RP-Hand status">
+    <main id="stage" aria-label="RP-Hand 摄像头手势控制">
+      <img id="frame" alt="实时手部识别画面和 RP-Hand 运行数据">
+      <section id="control-panel" aria-label="识别与模式控制">
+        <div class="control-row">
+          <span id="detection-label">手部识别</span>
+          <button
+            id="detection-toggle"
+            type="button"
+            role="switch"
+            aria-labelledby="detection-label"
+            aria-checked="true"
+          ><span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span></button>
+        </div>
+        <div class="control-row">
+          <label for="mode-select">控制模式</label>
+          <select id="mode-select">
+            <option value="mirror">连续映射</option>
+            <option value="gesture">手势触发</option>
+            <option value="rps">猜拳模式</option>
+          </select>
+        </div>
+      </section>
       <button
         id="emergency-stop"
         type="button"
         aria-pressed="false"
-      >EMERGENCY STOP</button>
+      >紧急停止</button>
       <p id="process-state" role="status" aria-live="polite" hidden></p>
     </main>
     <script src="layout.cjs"></script>
