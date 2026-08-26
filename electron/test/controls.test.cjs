@@ -8,14 +8,15 @@ const html = fs.readFileSync(path.join(rendererDir, 'index.html'), 'utf8');
 const css = fs.readFileSync(path.join(rendererDir, 'styles.css'), 'utf8');
 const appJs = fs.readFileSync(path.join(rendererDir, 'app.js'), 'utf8');
 
-test('exposes an accessible detection switch and native mode selector', () => {
+test('exposes only the supported continuous mapping mode in the GUI', () => {
   assert.match(html, /id="detection-toggle"/);
   assert.match(html, /role="switch"/);
   assert.match(html, /aria-checked="true"/);
   assert.match(html, /<select[^>]+id="mode-select"/);
   assert.match(html, /value="mirror"/);
-  assert.match(html, /value="gesture"/);
-  assert.match(html, /value="rps"/);
+  assert.doesNotMatch(html, /value="gesture"/);
+  assert.doesNotMatch(html, /value="rps"/);
+  assert.doesNotMatch(appJs, /sendCommand\('cycle_mode'\)/);
 });
 
 test('keeps every interactive control at least 44 pixels tall', () => {

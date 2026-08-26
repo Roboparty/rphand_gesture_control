@@ -124,7 +124,6 @@ window.addEventListener('keydown', (event) => {
   if (key === 'r') recoverControl();
   if (key === 'q' || key === 'e' || key === 'r') return;
   if (event.target.closest('button, select, input, textarea, a')) return;
-  if (key === 'm') window.rpHand.sendCommand('cycle_mode');
   if (event.code === 'Space') {
     event.preventDefault();
     toggleSending();
