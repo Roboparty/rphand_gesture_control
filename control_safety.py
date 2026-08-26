@@ -77,6 +77,19 @@ class TrackingWatchdog:
         self._stop_pending = True
         return True
 
+    def recover_to_safe_return(self, now: float) -> bool:
+        """Leave a latched stop only through the configured safe-open path."""
+
+        if self._state is not TrackingState.STOPPED:
+            return False
+        held_target = self._last_output or self._last_target
+        self._return_from = list(held_target or self._safe_positions)
+        self._last_seen_at = float(now) - self._grace_period_s
+        self._safe_return_forced = True
+        self._stop_pending = False
+        self._state = TrackingState.SAFE_RETURN
+        return True
+
     def request_safe_return(self, now: float) -> bool:
         """Start a deliberate return to the configured open/safe pose.
 

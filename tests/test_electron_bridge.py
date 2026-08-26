@@ -22,6 +22,7 @@ def test_parse_command_line_maps_only_existing_keyboard_actions():
     assert parse_command_line('{"type":"command","command":"cycle_mode"}') == ord("m")
     assert parse_command_line('{"type":"command","command":"toggle_pause"}') == ord(" ")
     assert parse_command_line('{"type":"command","command":"emergency_stop"}') == ord("e")
+    assert parse_command_line('{"type":"command","command":"recover_control"}') == 0x1005
     assert parse_command_line('{"type":"command","command":"toggle_detection"}') == KEY_TOGGLE_DETECTION
     assert parse_command_line('{"type":"command","command":"mode_mirror"}') == KEY_MODE_MIRROR
     assert parse_command_line('{"type":"command","command":"mode_gesture"}') == KEY_MODE_GESTURE
@@ -72,6 +73,7 @@ def test_bridge_includes_runtime_state_with_the_frame():
         "mode": "gesture",
         "detection_enabled": False,
         "sending": True,
+        "safety_state": "safe_return",
     }
 
     assert bridge.submit_frame(frame, now=1.0, state=state) is True

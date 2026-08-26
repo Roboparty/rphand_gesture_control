@@ -162,6 +162,26 @@ class LHandProDriver(BaseHandDriver):
         except Exception as e:
             print(f"[LHandPro] 停止电机时异常: {e}")
 
+    def recover(self) -> bool:
+        """Clear the stop condition without homing or commanding motion."""
+
+        if (not self._connected or self._controller is None
+                or self._controller.sdk_handle is None):
+            return False
+        try:
+            sdk = self._controller.sdk_handle
+            # Recovery only restores the drive state. The watchdog owns the
+            # subsequent safe-open trajectory; homing is a separate operation.
+            sdk.set_clear_alarm(0)
+            sdk.set_enable(0, True)
+            self._stopped = False
+            print("[LHandPro] 急停锁存已解除, 等待安全回张")
+            return True
+        except Exception as e:
+            self._stopped = True
+            print(f"[LHandPro] 恢复控制失败: {e}")
+            return False
+
     # ------------------------------------------------------------------
     def set_joint_positions(self, positions: List[float],
                             speed: Optional[List[float]] = None) -> bool:

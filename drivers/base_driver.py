@@ -27,6 +27,11 @@ class BaseHandDriver(ABC):
         ...
 
     @abstractmethod
+    def recover(self) -> bool:
+        """解除驱动急停锁存；不执行回零或下发位置。"""
+        ...
+
+    @abstractmethod
     def set_joint_positions(self, positions: List[float],
                             speed: Optional[List[float]] = None) -> bool:
         """下发各关节目标位置。

@@ -122,3 +122,28 @@ def test_emergency_stop_is_latched_and_reported_once():
     assert first.should_stop is True
     assert second.state is TrackingState.STOPPED
     assert second.should_stop is False
+
+
+def test_emergency_stop_recovers_only_into_a_controlled_safe_return():
+    watchdog = make_watchdog()
+    watchdog.update([8000.0, 4000.0], now=0.0)
+    watchdog.note_output([8000.0, 4000.0])
+    watchdog.force_stop()
+    watchdog.update(None, now=0.1)
+
+    assert watchdog.recover_to_safe_return(now=1.0) is True
+    decision = watchdog.update(None, now=1.2)
+
+    assert decision.state is TrackingState.SAFE_RETURN
+    assert decision.target == pytest.approx([6400.0, 3200.0])
+    assert decision.should_stop is False
+
+
+def test_controlled_recovery_is_rejected_when_watchdog_is_not_stopped():
+    watchdog = make_watchdog()
+
+    assert watchdog.recover_to_safe_return(now=0.0) is False
+
+    watchdog.force_stop()
+    assert watchdog.recover_to_safe_return(now=0.1) is True
+    assert watchdog.recover_to_safe_return(now=0.2) is False

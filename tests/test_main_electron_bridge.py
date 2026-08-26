@@ -57,6 +57,7 @@ class Camera:
 class Driver:
     def __init__(self):
         self.stop_calls = 0
+        self.recover_calls = 0
         self.stopped = False
         self.connected = False
         self.commands = []
@@ -73,6 +74,13 @@ class Driver:
             return
         self.stopped = True
         self.stop_calls += 1
+
+    def recover(self):
+        self.recover_calls += 1
+        if not self.connected:
+            return False
+        self.stopped = False
+        return True
 
     def set_joint_positions(self, positions, speed=None):
         self.commands.append(list(positions))
@@ -223,3 +231,27 @@ def test_disabling_detection_returns_to_safe_open_even_while_paused(monkeypatch)
     assert result == 0
     assert driver.commands[0] == [5000.0]
     assert driver.commands[-1] == [0.0]
+
+
+def test_electron_recovery_disables_tracking_and_returns_to_safe_open(monkeypatch):
+    result, bridge, recognizer, driver = _run_bridge_session(
+        monkeypatch,
+        [ord("e"), 0, 0x1005, 0, ord("q")],
+        monotonic_times=[0.0, 1.0, 2.0, 3.0, 4.0],
+        safe_return_duration_s=0.0,
+    )
+
+    assert result == 0
+    assert driver.recover_calls == 1
+    assert driver.commands[0] == [5000.0]
+    assert driver.commands[-1] == [0.0]
+    assert recognizer.process_calls == 3
+    assert [state.get("safety_state") for state in bridge.states] == [
+        "tracking",
+        "stopped",
+        "stopped",
+        "safe_hold",
+        "safe_hold",
+    ]
+    assert bridge.states[-1]["detection_enabled"] is False
+    assert bridge.states[-1]["sending"] is False

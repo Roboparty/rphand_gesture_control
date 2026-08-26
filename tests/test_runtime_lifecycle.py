@@ -65,6 +65,26 @@ class PartialController:
         self.disconnect_calls += 1
 
 
+class RecoverySdk:
+    def __init__(self, *, fail_enable: bool = False):
+        self.fail_enable = fail_enable
+        self.clear_alarm_calls = []
+        self.enable_calls = []
+
+    def set_clear_alarm(self, motor_id: int) -> None:
+        self.clear_alarm_calls.append(motor_id)
+
+    def set_enable(self, motor_id: int, enabled: bool) -> None:
+        self.enable_calls.append((motor_id, enabled))
+        if self.fail_enable:
+            raise RuntimeError("enable failed")
+
+
+class RecoveryController:
+    def __init__(self, sdk: RecoverySdk):
+        self.sdk_handle = sdk
+
+
 def test_camera_open_failure_still_closes_all_runtime_resources(monkeypatch):
     events: list[str] = []
     recognizer = FakeRecognizer(events)
@@ -127,3 +147,36 @@ def test_sim_driver_rejects_commands_after_stop():
     driver.stop()
 
     assert driver.set_joint_positions([5000.0]) is False
+
+
+def test_sim_driver_can_resume_commands_after_controlled_recovery():
+    driver = SimHandDriver(["joint_1"])
+    driver.connect()
+    driver.stop()
+
+    assert driver.recover() is True
+    assert driver.set_joint_positions([5000.0]) is True
+
+
+def test_lhandpro_recovery_clears_alarm_and_reenables_all_motors():
+    sdk = RecoverySdk()
+    driver = LHandProDriver(library_path="unused")
+    driver._controller = RecoveryController(sdk)
+    driver._connected = True
+    driver._stopped = True
+
+    assert driver.recover() is True
+    assert sdk.clear_alarm_calls == [0]
+    assert sdk.enable_calls == [(0, True)]
+    assert driver._stopped is False
+
+
+def test_lhandpro_recovery_remains_stopped_when_reenable_fails():
+    sdk = RecoverySdk(fail_enable=True)
+    driver = LHandProDriver(library_path="unused")
+    driver._controller = RecoveryController(sdk)
+    driver._connected = True
+    driver._stopped = True
+
+    assert driver.recover() is False
+    assert driver._stopped is True

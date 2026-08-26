@@ -36,6 +36,13 @@ class SimHandDriver(BaseHandDriver):
         self._stopped = True
         print("[SimDriver] 仿真灵巧手已停止")
 
+    def recover(self) -> bool:
+        if not self._connected:
+            return False
+        self._stopped = False
+        print("[SimDriver] 仿真灵巧手已恢复控制")
+        return True
+
     def set_joint_positions(self, positions: List[float],
                             speed: Optional[List[float]] = None) -> bool:
         if not self._connected or self._stopped:

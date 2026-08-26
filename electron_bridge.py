@@ -17,6 +17,7 @@ KEY_MODE_MIRROR = 0x1001
 KEY_MODE_GESTURE = 0x1002
 KEY_MODE_RPS = 0x1003
 KEY_TOGGLE_DETECTION = 0x1004
+KEY_RECOVER_CONTROL = 0x1005
 
 
 COMMAND_KEYS = {
@@ -24,6 +25,7 @@ COMMAND_KEYS = {
     "cycle_mode": ord("m"),
     "toggle_pause": ord(" "),
     "emergency_stop": ord("e"),
+    "recover_control": KEY_RECOVER_CONTROL,
     "toggle_detection": KEY_TOGGLE_DETECTION,
     "mode_mirror": KEY_MODE_MIRROR,
     "mode_gesture": KEY_MODE_GESTURE,

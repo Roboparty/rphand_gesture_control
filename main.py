@@ -33,6 +33,7 @@ from electron_bridge import (
     KEY_MODE_GESTURE,
     KEY_MODE_MIRROR,
     KEY_MODE_RPS,
+    KEY_RECOVER_CONTROL,
     KEY_TOGGLE_DETECTION,
     ElectronBridge,
 )
@@ -244,7 +245,7 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
     rps_last_round = 0.0
     rps_round_msg = ""
 
-    print("运行中...  q=退出  m=切换模式  空格=暂停/恢复发送  e=紧急停止")
+    print("运行中...  q=退出  m=切换模式  空格=暂停/恢复发送  e=紧急停止  r=受控恢复")
     fail_count = 0
     t_start = time.time()
     try:
@@ -372,6 +373,7 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                         "mode": mode,
                         "detection_enabled": detection_enabled,
                         "sending": sending,
+                        "safety_state": decision.state.value,
                     },
                 )
                 key = bridge.poll_key()
@@ -417,7 +419,23 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                 if watchdog.force_stop():
                     driver.stop()
                     sending = False
-                    print("紧急停止已触发, 需重启程序才能恢复")
+                    print("紧急停止已触发, 排除风险后可执行受控恢复")
+            elif key in {KEY_RECOVER_CONTROL, ord("r")}:
+                if watchdog.state is not TrackingState.STOPPED:
+                    print("当前未处于急停状态, 无需恢复")
+                elif driver.recover():
+                    # Recovery never resumes vision-driven commands directly.
+                    # It first disables tracking and returns to the safe pose.
+                    watchdog.recover_to_safe_return(now)
+                    detection_enabled = False
+                    sending = False
+                    gesture_history.clear()
+                    last_gesture_triggered = None
+                    rps_armed = True
+                    rps_round_msg = ""
+                    print("控制已恢复, 正在安全回张; 请确认状态后重新开启识别与发送")
+                else:
+                    print("恢复控制失败, 急停保持锁定")
     finally:
         resources.close()
     return 0
