@@ -40,6 +40,9 @@ class Mapper:
     def map_mirror(self, _values, pinch_strength=0.0):
         return [5000.0]
 
+    def map_preset(self, _gesture):
+        return None
+
 
 class Camera:
     def set(self, _prop, _value):
@@ -141,7 +144,13 @@ def test_electron_bridge_reuses_the_existing_emergency_stop_branch(monkeypatch):
         lambda *_args: (_ for _ in ()).throw(AssertionError("waitKey called")),
     )
     monkeypatch.setattr(app.cv2, "destroyAllWindows", lambda: None)
-    monkeypatch.setattr(app, "draw_hud", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        app,
+        "draw_hud",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Electron mode must not composite the OpenCV HUD")
+        ),
+    )
     monkeypatch.setattr(app, "ElectronBridge", lambda *_args, **_kwargs: bridge, raising=False)
     monkeypatch.setattr(app.os, "system", lambda _command: 0)
 
@@ -151,6 +160,8 @@ def test_electron_bridge_reuses_the_existing_emergency_stop_branch(monkeypatch):
     assert bridge.frames == 2
     assert bridge.closed is True
     assert driver.stop_calls == 1
+    assert bridge.states[0]["telemetry"]["gesture"] == "unknown"
+    assert bridge.states[0]["telemetry"]["joints"][0]["value"] == 5000.0
 
 
 def _run_bridge_session(
@@ -184,7 +195,13 @@ def _run_bridge_session(
     monkeypatch.setattr(app, "make_driver", lambda _cfg, _names: driver)
     monkeypatch.setattr(app.cv2, "VideoCapture", lambda *_args: Camera())
     monkeypatch.setattr(app.cv2, "destroyAllWindows", lambda: None)
-    monkeypatch.setattr(app, "draw_hud", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        app,
+        "draw_hud",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Electron mode must not composite the OpenCV HUD")
+        ),
+    )
     monkeypatch.setattr(app, "ElectronBridge", lambda *_args, **_kwargs: bridge, raising=False)
     monkeypatch.setattr(app.os, "system", lambda _command: 0)
     if monotonic_times is not None:

@@ -30,53 +30,89 @@
           aria-valuenow="8"
         ><span id="startup-progress-bar"></span></div>
       </section>
-      <img id="frame" alt="实时手部识别画面和 RP-Hand 运行数据">
-      <section id="control-panel" aria-label="识别与模式控制">
-        <div class="control-row">
-          <span id="detection-label">手部识别</span>
-          <button
-            id="detection-toggle"
-            type="button"
-            role="switch"
-            aria-labelledby="detection-label"
-            aria-checked="true"
-          ><span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span></button>
-        </div>
-        <div class="control-row">
-          <span id="sending-label">指令发送</span>
-          <button
-            id="sending-toggle"
-            type="button"
-            role="switch"
-            aria-labelledby="sending-label"
-            aria-checked="true"
-          ><span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span></button>
-        </div>
-        <div class="control-row">
-          <label for="mode-select">控制模式</label>
-          <select id="mode-select">
-            <option value="mirror">连续映射</option>
-          </select>
-        </div>
-        <div class="control-row">
-          <span id="recovery-label">急停恢复</span>
-          <button
-            id="recover-control"
-            type="button"
-            aria-labelledby="recovery-label"
-            disabled
-          >恢复控制</button>
-        </div>
+      <section id="video-region" aria-label="实时手部识别画面">
+        <img id="frame" alt="实时手部识别画面">
+        <p id="safety-banner" role="status" hidden></p>
+        <p id="process-state" role="status" aria-live="polite" hidden></p>
       </section>
-      <button
-        id="emergency-stop"
-        type="button"
-        aria-pressed="false"
-      >紧急停止</button>
-      <p id="process-state" role="status" aria-live="polite" hidden></p>
+      <aside id="runtime-sidebar" aria-label="RP-Hand 运行数据与控制">
+        <section id="telemetry-panel" aria-label="实时运行数据">
+          <p id="mode-state" class="telemetry-mode">Mode: mirror</p>
+          <p id="sending-state" class="telemetry-status" data-tone="success">SENDING</p>
+          <p id="gesture-state" class="telemetry-gesture">Gesture: none</p>
+          <p id="gesture-label" class="telemetry-gesture-label">(未识别)</p>
+
+          <div id="input-telemetry" aria-label="人手输入通道">
+            <div class="telemetry-row" data-input="thumb">
+              <span>thumb</span><span class="telemetry-track" role="progressbar" aria-label="thumb" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></span>
+            </div>
+            <div class="telemetry-row" data-input="index">
+              <span>index</span><span class="telemetry-track" role="progressbar" aria-label="index" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></span>
+            </div>
+            <div class="telemetry-row" data-input="middle">
+              <span>middle</span><span class="telemetry-track" role="progressbar" aria-label="middle" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></span>
+            </div>
+            <div class="telemetry-row" data-input="ring">
+              <span>ring</span><span class="telemetry-track" role="progressbar" aria-label="ring" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></span>
+            </div>
+            <div class="telemetry-row" data-input="pinky">
+              <span>pinky</span><span class="telemetry-track" role="progressbar" aria-label="pinky" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></span>
+            </div>
+            <div class="telemetry-row" data-input="thumb_spread">
+              <span>th_roll</span><span class="telemetry-track telemetry-track--spread" role="progressbar" aria-label="thumb spread" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></span>
+            </div>
+          </div>
+
+          <p class="telemetry-section-title">Hand joints:</p>
+          <div id="joint-telemetry" aria-label="灵巧手关节位置"></div>
+        </section>
+
+        <section id="control-panel" aria-label="识别与模式控制">
+          <div class="control-row">
+            <span id="detection-label">手部识别</span>
+            <button
+              id="detection-toggle"
+              type="button"
+              role="switch"
+              aria-labelledby="detection-label"
+              aria-checked="true"
+            ><span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span></button>
+          </div>
+          <div class="control-row">
+            <span id="sending-label">指令发送</span>
+            <button
+              id="sending-toggle"
+              type="button"
+              role="switch"
+              aria-labelledby="sending-label"
+              aria-checked="true"
+            ><span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span></button>
+          </div>
+          <div class="control-row">
+            <label for="mode-select">控制模式</label>
+            <select id="mode-select">
+              <option value="mirror">连续映射</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <span id="recovery-label">急停恢复</span>
+            <button
+              id="recover-control"
+              type="button"
+              aria-labelledby="recovery-label"
+              disabled
+            >恢复控制</button>
+          </div>
+        </section>
+        <button
+          id="emergency-stop"
+          type="button"
+          aria-pressed="false"
+        >紧急停止</button>
+      </aside>
     </main>
-    <script src="layout.cjs"></script>
     <script src="startup-state.cjs"></script>
+    <script src="telemetry-state.cjs"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -75,3 +75,15 @@ test('keeps controls readable and contained in a narrow HUD panel', () => {
 test('keeps the sending switch at least 44 pixels tall', () => {
   assert.match(css, /#sending-toggle[\s\S]*?min-height:\s*44px/);
 });
+
+test('owns telemetry and controls in a layout independent of camera pixels', () => {
+  assert.match(html, /id="video-region"/);
+  assert.match(html, /id="runtime-sidebar"/);
+  assert.match(html, /id="telemetry-panel"/);
+  assert.match(html, /data-input="thumb"/);
+  assert.match(html, /id="joint-telemetry"/);
+  assert.match(css, /#stage\s*\{[\s\S]*?display:\s*grid/);
+  assert.match(css, /#runtime-sidebar\s*\{[\s\S]*?overflow-y:\s*auto/);
+  assert.doesNotMatch(appJs, /computeLayout|naturalWidth|naturalHeight/);
+  assert.doesNotMatch(appJs, /controlPanel\.style|stopButton\.style/);
+});

@@ -21,6 +21,47 @@ const VALID_SAFETY_STATES = new Set([
   'safe_hold',
   'stopped',
 ]);
+const INPUT_CHANNELS = [
+  'thumb',
+  'index',
+  'middle',
+  'ring',
+  'pinky',
+  'thumb_spread',
+];
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isUnitNumber(value) {
+  return Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function isValidTelemetry(telemetry) {
+  if (
+    !isRecord(telemetry)
+    || typeof telemetry.detected !== 'boolean'
+    || typeof telemetry.driver_connected !== 'boolean'
+    || typeof telemetry.gesture !== 'string'
+    || typeof telemetry.gesture_label !== 'string'
+    || typeof telemetry.banner !== 'string'
+    || !isRecord(telemetry.inputs)
+    || !Array.isArray(telemetry.joints)
+  ) {
+    return false;
+  }
+  if (!INPUT_CHANNELS.every((channel) => isUnitNumber(telemetry.inputs[channel]))) {
+    return false;
+  }
+  return telemetry.joints.every((joint) => (
+    isRecord(joint)
+    && typeof joint.name === 'string'
+    && joint.name.length > 0
+    && Number.isFinite(joint.value)
+    && isUnitNumber(joint.ratio)
+  ));
+}
 
 function commandLine(command) {
   if (!ALLOWED_COMMANDS.has(command)) {
@@ -48,6 +89,7 @@ function parseFrameLine(line) {
         || typeof payload.state.detection_enabled !== 'boolean'
         || typeof payload.state.sending !== 'boolean'
         || !VALID_SAFETY_STATES.has(payload.state.safety_state)
+        || !isValidTelemetry(payload.state.telemetry)
       )
     ) {
       return null;

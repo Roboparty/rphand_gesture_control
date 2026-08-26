@@ -16,7 +16,6 @@ import argparse
 import os
 import sys
 import time
-from collections import deque
 from contextlib import nullcontext, redirect_stdout
 
 import cv2
@@ -26,9 +25,12 @@ import yaml
 from app_paths import app_dir, resolve_app_path
 from app_runtime import RuntimeResources
 from control_safety import TrackingState, TrackingWatchdog
-from gesture_recognizer import GestureRecognizer, GESTURE_NAMES_CN, FINGERS, HandObservation
+from gesture_preset_controller import GesturePresetController
+from gesture_recognizer import GestureRecognizer, GESTURE_NAMES_CN, HandObservation
 from gesture_mapping import GestureMapper
+from hud_renderer import draw_hud
 from rock_paper_scissors import RockPaperScissorsController
+from runtime_telemetry import build_runtime_state
 from drivers.sim_driver import SimHandDriver
 from electron_bridge import (
     KEY_MODE_GESTURE,
@@ -64,90 +66,6 @@ def make_driver(cfg: dict, joint_names):
             max_current=lp.get("max_current", 1000),
         )
     return SimHandDriver(joint_names)
-
-
-# ----------------------------------------------------------------------
-# HUD 绘制
-# ----------------------------------------------------------------------
-def draw_hud(frame, obs, positions, joint_names, mode, sending, driver_ok, pos_max=10000,
-             banner="", display_inputs=None, light_panel=False):
-    h, w = frame.shape[:2]
-    # 底部对战信息条
-    if banner:
-        cv2.rectangle(frame, (0, h - 50), (w, h), (20, 20, 20), -1)
-        cv2.putText(frame, banner, (16, h - 16), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.9, (0, 255, 255), 2)
-    panel_w = 320
-    if light_panel:
-        cv2.rectangle(frame, (w - panel_w, 0), (w, h), (255, 251, 247), -1)
-        primary = (224, 105, 23)
-        text = (48, 34, 24)
-        muted = (133, 112, 102)
-        track = (238, 228, 220)
-        success = (85, 148, 7)
-        danger = (32, 45, 217)
-        finger_fill = primary
-        thumb_fill = (214, 129, 47)
-        joint_fill = (154, 126, 22)
-    else:
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (w - panel_w, 0), (w, h), (30, 30, 30), -1)
-        cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
-        primary = (255, 255, 0)
-        text = (255, 255, 255)
-        muted = (180, 180, 180)
-        track = (80, 80, 80)
-        success = (0, 255, 0)
-        danger = (0, 0, 255)
-        finger_fill = (0, 200, 255)
-        thumb_fill = (255, 160, 0)
-        joint_fill = (0, 255, 120)
-
-    x0 = w - panel_w + 16
-    y = 34
-    cv2.putText(frame, f"Mode: {mode}", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, primary, 2)
-    y += 30
-    status = "SENDING" if sending else "PAUSED (Space)"
-    color = success if (sending and driver_ok) else danger
-    cv2.putText(frame, status, (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-    y += 30
-    gesture_cn = GESTURE_NAMES_CN.get(obs.gesture, obs.gesture)
-    cv2.putText(frame, f"Gesture: {obs.gesture}", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, text, 1)
-    y += 24
-    # 中文手势名可能因 OpenCV 字体缺字, 控制台同步打印, 画面上显示英文即可
-    cv2.putText(frame, f"({gesture_cn})", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, muted, 1)
-    y += 30
-
-    # 手指弯曲度条
-    if obs.detected:
-        display_inputs = display_inputs or {}
-        for f in FINGERS:
-            v = display_inputs.get(f, obs.curls[f])
-            cv2.putText(frame, f, (x0, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, muted, 1)
-            bx = x0 + 70
-            cv2.rectangle(frame, (bx, y - 8), (bx + 150, y + 6), track, -1)
-            cv2.rectangle(frame, (bx, y - 8), (bx + int(150 * v), y + 6), finger_fill, -1)
-            y += 22
-        # 拇指侧摆张角条
-        v = display_inputs.get("thumb_spread", obs.thumb_spread)
-        cv2.putText(frame, "th_roll", (x0, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, muted, 1)
-        bx = x0 + 70
-        cv2.rectangle(frame, (bx, y - 8), (bx + 150, y + 6), track, -1)
-        cv2.rectangle(frame, (bx, y - 8), (bx + int(150 * v), y + 6), thumb_fill, -1)
-        y += 22
-    y += 10
-
-    # 灵巧手关节位置条
-    cv2.putText(frame, "Hand joints:", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text, 1)
-    y += 22
-    for name, p in zip(joint_names, positions):
-        frac = min(max(p / pos_max, 0.0), 1.0)  # 按最大位置归一化显示
-        cv2.putText(frame, name[:12], (x0, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, muted, 1)
-        bx = x0 + 110
-        cv2.rectangle(frame, (bx, y - 8), (bx + 110, y + 6), track, -1)
-        cv2.rectangle(frame, (bx, y - 8), (bx + int(110 * frac), y + 6), joint_fill, -1)
-        cv2.putText(frame, str(int(p)), (bx + 115, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, muted, 1)
-        y += 20
 
 
 # ----------------------------------------------------------------------
@@ -232,9 +150,8 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
         lost_action=tracking_cfg.get("lost_action", "open"),
     )
     hold_needed = cfg["control"]["command_hold_frames"]
-    gesture_history = deque(maxlen=hold_needed)
+    gesture_controller = GesturePresetController(hold_frames=hold_needed)
     last_sent = float("-inf")
-    last_gesture_triggered = None
     rps_controller = RockPaperScissorsController(
         hold_frames=hold_needed,
         cooldown_s=cfg["control"].get("rps_cooldown_s", 3.0),
@@ -288,16 +205,18 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                     if rps_decision.log_message:
                         print(rps_decision.log_message)
                 else:  # gesture 模式: 手势稳定 hold_needed 帧才触发预设动作
-                    gesture_history.append(obs.gesture)
-                    stable = (len(gesture_history) == hold_needed
-                              and len(set(gesture_history)) == 1)
-                    g = gesture_history[-1] if gesture_history else None
-                    if stable and g != last_gesture_triggered:
-                        pose = mapper.map_preset(g)
-                        if pose is not None:
-                            positions = pose
-                            last_gesture_triggered = g
-                            print(f"[手势触发] {g} -> {GESTURE_NAMES_CN.get(g, g)}")
+                    gesture_decision = gesture_controller.update(
+                        obs.gesture,
+                        detected=True,
+                        map_preset=mapper.map_preset,
+                    )
+                    positions = gesture_decision.positions
+                    if gesture_decision.gesture is not None:
+                        gesture = gesture_decision.gesture
+                        print(
+                            f"[手势触发] {gesture} -> "
+                            f"{GESTURE_NAMES_CN.get(gesture, gesture)}"
+                        )
             elif mode == "rps":
                 rps_controller.update(
                     None,
@@ -305,8 +224,12 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                     now=time.time(),
                     map_preset=mapper.map_preset,
                 )
-            elif not obs.detected:
-                gesture_history.clear()
+            elif mode == "gesture":
+                gesture_controller.update(
+                    None,
+                    detected=False,
+                    map_preset=mapper.map_preset,
+                )
 
             now = time.monotonic()
             decision = watchdog.update(
@@ -341,25 +264,42 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                 TrackingState.SAFE_HOLD: "SAFE POSE",
                 TrackingState.STOPPED: "EMERGENCY STOP",
             }.get(decision.state, "")
+            banner = safety_banner or (
+                rps_controller.banner if mode == "rps" else ""
+            )
             pos_max = max(max(j["range"]) for j in cfg["hand"]["joints"])
-            draw_hud(frame, obs, hud_positions, mapper.joint_names,
-                     mode, sending, driver.is_connected, pos_max,
-                     banner=safety_banner or (rps_controller.banner if mode == "rps" else ""),
-                     display_inputs=display_inputs,
-                     light_panel=bridge is not None)
             if bridge is None:
+                draw_hud(
+                    frame,
+                    obs,
+                    hud_positions,
+                    mapper.joint_names,
+                    mode,
+                    sending,
+                    driver.is_connected,
+                    pos_max,
+                    banner=banner,
+                    display_inputs=display_inputs,
+                )
                 cv2.imshow("RP-Hand", frame)
                 key = cv2.waitKey(1) & 0xFF
             else:
                 bridge.submit_frame(
                     frame,
                     now=now,
-                    state={
-                        "mode": mode,
-                        "detection_enabled": detection_enabled,
-                        "sending": sending,
-                        "safety_state": decision.state.value,
-                    },
+                    state=build_runtime_state(
+                        mode=mode,
+                        detection_enabled=detection_enabled,
+                        sending=sending,
+                        safety_state=decision.state.value,
+                        observation=obs,
+                        display_inputs=display_inputs,
+                        positions=hud_positions,
+                        joint_names=mapper.joint_names,
+                        position_max=pos_max,
+                        driver_connected=driver.is_connected,
+                        banner=banner,
+                    ),
                 )
                 key = bridge.poll_key()
             if key == ord("q"):
@@ -370,8 +310,7 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                     KEY_MODE_GESTURE: "gesture",
                     KEY_MODE_RPS: "rps",
                 }[key]
-                gesture_history.clear()
-                last_gesture_triggered = None
+                gesture_controller.reset()
                 rps_controller.reset()
                 print(f"切换到 {mode} 模式")
             elif key == KEY_TOGGLE_DETECTION:
@@ -380,15 +319,13 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                     watchdog.request_safe_return(now)
                 else:
                     watchdog.resume_tracking_policy(now)
-                gesture_history.clear()
-                last_gesture_triggered = None
+                gesture_controller.reset()
                 rps_controller.reset()
                 print("已开启手部识别" if detection_enabled else "已关闭手部识别")
             elif key == ord("m"):
                 modes = ["mirror", "gesture", "rps"]
                 mode = modes[(modes.index(mode) + 1) % len(modes)]
-                gesture_history.clear()
-                last_gesture_triggered = None
+                gesture_controller.reset()
                 rps_controller.reset()
                 print(f"切换到 {mode} 模式")
             elif key == ord(" "):
@@ -411,8 +348,7 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                     watchdog.recover_to_safe_return(now)
                     detection_enabled = False
                     sending = False
-                    gesture_history.clear()
-                    last_gesture_triggered = None
+                    gesture_controller.reset()
                     rps_controller.reset()
                     print("控制已恢复, 正在安全回张; 请确认状态后重新开启识别与发送")
                 else:

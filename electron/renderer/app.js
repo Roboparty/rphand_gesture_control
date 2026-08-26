@@ -1,6 +1,4 @@
-const stage = document.getElementById('stage');
 const frame = document.getElementById('frame');
-const controlPanel = document.getElementById('control-panel');
 const detectionToggle = document.getElementById('detection-toggle');
 const sendingToggle = document.getElementById('sending-toggle');
 const modeSelect = document.getElementById('mode-select');
@@ -11,6 +9,18 @@ const startupScreen = document.getElementById('startup-screen');
 const startupLabel = document.getElementById('startup-label');
 const startupProgressElement = document.getElementById('startup-progress');
 const startupProgressBar = document.getElementById('startup-progress-bar');
+const modeState = document.getElementById('mode-state');
+const sendingState = document.getElementById('sending-state');
+const gestureState = document.getElementById('gesture-state');
+const gestureLabel = document.getElementById('gesture-label');
+const jointTelemetry = document.getElementById('joint-telemetry');
+const safetyBanner = document.getElementById('safety-banner');
+const inputTracks = new Map(
+  [...document.querySelectorAll('[data-input]')].map((row) => [
+    row.dataset.input,
+    row.querySelector('.telemetry-track'),
+  ]),
+);
 let emergencyLatched = false;
 let emergencyRequested = false;
 let pendingDetection = null;
@@ -60,29 +70,61 @@ function completeStartupOnce() {
   startupProgress.setComplete();
 }
 
-function updateLayout() {
-  if (!frame.naturalWidth || !frame.naturalHeight) return;
-  const layout = window.computeLayout(
-    stage.clientWidth,
-    stage.clientHeight,
-    frame.naturalWidth,
-    frame.naturalHeight,
-  );
-  if (!layout) return;
-  Object.assign(controlPanel.style, {
-    left: `${layout.controls.left}px`,
-    top: `${layout.controls.top}px`,
-    width: `${layout.controls.width}px`,
-    height: `${layout.controls.height}px`,
-    visibility: 'visible',
+function setProgress(track, width) {
+  if (!track) return;
+  track.firstElementChild.style.width = width;
+  track.setAttribute('aria-valuenow', `${Number.parseInt(width, 10) || 0}`);
+}
+
+function createJointRow(joint) {
+  const row = document.createElement('div');
+  row.className = 'joint-row';
+  row.dataset.joint = joint.name;
+
+  const label = document.createElement('span');
+  label.textContent = joint.name;
+  label.title = joint.name;
+
+  const track = document.createElement('span');
+  track.className = 'joint-track';
+  track.setAttribute('role', 'progressbar');
+  track.setAttribute('aria-label', joint.name);
+  track.setAttribute('aria-valuemin', '0');
+  track.setAttribute('aria-valuemax', '100');
+  track.append(document.createElement('span'));
+
+  const output = document.createElement('output');
+  row.append(label, track, output);
+  return row;
+}
+
+function renderJoints(joints) {
+  const currentNames = [...jointTelemetry.children].map((row) => row.dataset.joint);
+  const nextNames = joints.map((joint) => joint.name);
+  if (currentNames.join('\0') !== nextNames.join('\0')) {
+    jointTelemetry.replaceChildren(...joints.map(createJointRow));
+  }
+  joints.forEach((joint, index) => {
+    const row = jointTelemetry.children[index];
+    setProgress(row.querySelector('.joint-track'), joint.width);
+    row.querySelector('output').textContent = joint.value;
   });
-  Object.assign(stopButton.style, {
-    left: `${layout.stop.left}px`,
-    top: `${layout.stop.top}px`,
-    width: `${layout.stop.width}px`,
-    height: `${layout.stop.height}px`,
-    visibility: 'visible',
+}
+
+function renderTelemetry(state) {
+  if (!state?.telemetry) return;
+  const view = window.rpHandTelemetry.buildTelemetryView(state);
+  modeState.textContent = `Mode: ${view.mode}`;
+  sendingState.textContent = view.status;
+  sendingState.dataset.tone = view.statusTone;
+  gestureState.textContent = view.gesture;
+  gestureLabel.textContent = view.gestureLabel;
+  Object.entries(view.inputs).forEach(([channel, width]) => {
+    setProgress(inputTracks.get(channel), width);
   });
+  renderJoints(view.joints);
+  safetyBanner.textContent = view.banner;
+  safetyBanner.hidden = view.banner.length === 0;
 }
 
 function applyRuntimeState(state) {
@@ -123,6 +165,7 @@ function applyRuntimeState(state) {
   if (pendingMode === null && modeSelect.value !== state.mode) {
     modeSelect.value = state.mode;
   }
+  renderTelemetry(state);
 }
 
 function emergencyStop() {
@@ -161,9 +204,7 @@ modeSelect.addEventListener('change', () => {
   pendingMode = modeSelect.value;
   window.rpHand.sendCommand(`mode_${modeSelect.value}`);
 });
-frame.addEventListener('load', updateLayout);
 frame.addEventListener('load', completeStartupOnce);
-window.addEventListener('resize', updateLayout);
 window.addEventListener('keydown', (event) => {
   if (event.repeat) return;
   const key = event.key.toLowerCase();

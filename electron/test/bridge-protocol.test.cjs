@@ -39,6 +39,24 @@ test('accepts a valid frame and rejects unrelated or malformed lines', () => {
 });
 
 test('preserves validated Python runtime state on a frame', () => {
+  const telemetry = {
+    detected: true,
+    driver_connected: true,
+    gesture: 'pinch',
+    gesture_label: '捏合',
+    inputs: {
+      thumb: 0.8,
+      index: 0.9,
+      middle: 0,
+      ring: 0,
+      pinky: 0,
+      thumb_spread: 0.6,
+    },
+    joints: [
+      { name: 'thumb_bend', value: 8000, ratio: 0.8 },
+    ],
+    banner: '',
+  };
   const payload = parseFrameLine(JSON.stringify({
     type: 'frame',
     sequence: 8,
@@ -48,6 +66,7 @@ test('preserves validated Python runtime state on a frame', () => {
       detection_enabled: false,
       sending: true,
       safety_state: 'stopped',
+      telemetry,
     },
   }));
 
@@ -56,6 +75,7 @@ test('preserves validated Python runtime state on a frame', () => {
     detection_enabled: false,
     sending: true,
     safety_state: 'stopped',
+    telemetry,
   });
   assert.equal(parseFrameLine(JSON.stringify({
     type: 'frame',
@@ -79,6 +99,46 @@ test('preserves validated Python runtime state on a frame', () => {
       safety_state: 'invalid',
     },
   })), null);
+});
+
+test('rejects malformed Electron telemetry instead of rendering unsafe values', () => {
+  const base = {
+    type: 'frame',
+    sequence: 11,
+    jpeg: 'YWJj',
+    state: {
+      mode: 'mirror',
+      detection_enabled: true,
+      sending: true,
+      safety_state: 'tracking',
+      telemetry: {
+        detected: true,
+        driver_connected: true,
+        gesture: 'unknown',
+        gesture_label: '未知',
+        inputs: {
+          thumb: 0,
+          index: 0,
+          middle: 0,
+          ring: 0,
+          pinky: 0,
+          thumb_spread: 0,
+        },
+        joints: [],
+        banner: '',
+      },
+    },
+  };
+
+  const invalidRatio = structuredClone(base);
+  invalidRatio.state.telemetry.joints = [
+    { name: 'thumb_bend', value: 12000, ratio: 1.2 },
+  ];
+  assert.equal(parseFrameLine(JSON.stringify(invalidRatio)), null);
+
+  const missingFinger = structuredClone(base);
+  delete missingFinger.state.telemetry.inputs.ring;
+  assert.equal(parseFrameLine(JSON.stringify(missingFinger)), null);
 });
 
 test('launches the physical hand driver from Electron by default', () => {
