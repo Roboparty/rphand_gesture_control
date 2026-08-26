@@ -45,6 +45,7 @@ class HandObservation:
     world_landmarks: Optional[np.ndarray] = None    # (21, 3) MediaPipe 世界坐标
     curls: Dict[str, float] = field(default_factory=lambda: {f: 0.0 for f in FINGERS})
     thumb_spread: float = 0.0                       # 拇指侧摆张角 0=贴掌 1=张开
+    pinch_strength: float = 0.0                     # 拇指与食指捏合强度 0=分开 1=接触
     gesture: str = "none"
 
 
@@ -56,6 +57,22 @@ def _angle_deg(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
         return 180.0
     cos = np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0)
     return math.degrees(math.acos(cos))
+
+
+def _compute_pinch_strength(
+    lm: np.ndarray,
+    contact_distance: float = 0.15,
+    release_distance: float = 0.45,
+) -> float:
+    """根据拇指与食指指尖距离返回连续捏合强度。"""
+    palm_scale = float(np.linalg.norm(lm[0] - lm[9]))
+    if palm_scale < 1e-6:
+        return 0.0
+    normalized_distance = np.linalg.norm(lm[4] - lm[8]) / palm_scale
+    strength = (
+        release_distance - normalized_distance
+    ) / (release_distance - contact_distance)
+    return float(np.clip(strength, 0.0, 1.0))
 
 
 def _image_landmarks_to_equal_scale(lm: np.ndarray,
@@ -98,6 +115,7 @@ class GestureRecognizer:
         self._alpha = 1.0 - min(max(smooth_factor, 0.0), 1.0)
         self._smooth_curls: Dict[str, float] = {f: 0.0 for f in FINGERS}
         self._smooth_spread: float = 0.0
+        self._smooth_pinch_strength: float = 0.0
 
     def close(self) -> None:
         self._hands.close()
@@ -111,6 +129,7 @@ class GestureRecognizer:
         if not results.multi_hand_landmarks:
             self._smooth_curls = {f: 0.0 for f in FINGERS}
             self._smooth_spread = 0.0
+            self._smooth_pinch_strength = 0.0
             return obs
 
         # image landmarks 与输入图像一一对应，后面 draw_landmarks() 仍用它画骨架。
@@ -149,6 +168,12 @@ class GestureRecognizer:
         raw_spread = self._compute_thumb_spread(geometry_lm)
         self._smooth_spread = self._alpha * raw_spread + (1 - self._alpha) * self._smooth_spread
         obs.thumb_spread = self._smooth_spread
+        raw_pinch_strength = _compute_pinch_strength(geometry_lm)
+        self._smooth_pinch_strength = (
+            self._alpha * raw_pinch_strength
+            + (1 - self._alpha) * self._smooth_pinch_strength
+        )
+        obs.pinch_strength = self._smooth_pinch_strength
         obs.gesture = self._classify(geometry_lm, obs.curls)
         return obs
 
