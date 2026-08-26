@@ -70,3 +70,28 @@ def test_real_hardware_open_hand_sample_maps_all_six_joints_to_zero():
     }
 
     assert mapper.map_mirror(open_sample) == [0.0] * 6
+
+
+def test_real_hardware_thumb_and_index_closed_samples_reach_full_travel():
+    config_path = Path(__file__).resolve().parents[1] / "config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    mapper = GestureMapper(
+        config["hand"]["joints"],
+        config["presets"],
+        config["hand"]["input_calibration"],
+    )
+    sample = {
+        "thumb": 0.446,
+        "thumb_spread": 0.1617,
+        "index": 0.672,
+        "middle": 0.2607,
+        "ring": 0.1893,
+        "pinky": 0.2296,
+    }
+
+    positions = mapper.map_mirror(sample)
+
+    assert positions[0] == pytest.approx(10000.0)
+    assert positions[2] == pytest.approx(10000.0)
+    assert positions[1] == pytest.approx(0.0)
+    assert positions[3:] == pytest.approx([0.0, 0.0, 0.0])

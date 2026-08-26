@@ -46,12 +46,12 @@ driver:
     max_current: 1000     # 最大电流 (厂商示例默认 1000, 过大会夹疼/过小没力)
 
 hand:
-  # 2026-08-26 真机张手采样。MediaPipe 在完全伸直时仍输出约 19%~26%，
-  # mirror 模式会将 open 重新映射为 0，并保持 closed=1 不变。
+  # 2026-08-26 真机端点采样。MediaPipe 在完全伸直时仍输出约 19%~26%；
+  # 拇指和食指的实测完全闭合值分别约为 0.446 与 0.672。
   input_calibration:
-    thumb:        { open: 0.2057 }
+    thumb:        { open: 0.2057, closed: 0.446 }
     thumb_spread: { open: 0.1617 }
-    index:        { open: 0.2576 }
+    index:        { open: 0.2576, closed: 0.672 }
     middle:       { open: 0.2607 }
     ring:         { open: 0.1893 }
     pinky:        { open: 0.2296 }
