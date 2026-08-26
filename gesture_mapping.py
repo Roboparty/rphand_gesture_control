@@ -13,15 +13,18 @@ FINGERS = ("thumb", "index", "middle", "ring", "pinky")
 class GestureMapper:
 
     def __init__(self, joint_cfg: List[dict], presets: Dict[str, List[float]],
-                 input_calibration: Optional[Dict[str, dict]] = None):
+                 input_calibration: Optional[Dict[str, dict]] = None,
+                 pinch_assist: Optional[Dict[str, object]] = None):
         """
         joint_cfg: config.yaml 里 hand.joints 的列表
         presets:   config.yaml 里 presets 字典
         input_calibration: 各输入通道的张开端基线
+        pinch_assist: 捏合时需要渐进增强的输入通道及其目标幅度
         """
         self._joints = joint_cfg
         self._presets = presets
         self._input_calibration = input_calibration or {}
+        self._pinch_assist = pinch_assist or {}
         for src, calibration in self._input_calibration.items():
             open_value = float(calibration.get("open", 0.0))
             closed_value = float(calibration.get("closed", 1.0))
@@ -29,6 +32,10 @@ class GestureMapper:
                 raise ValueError(f"{src} 的 open 必须小于 1 且不小于 0")
             if not open_value < closed_value <= 1.0:
                 raise ValueError(f"{src} 的 closed 必须大于 open 且不大于 1")
+        for src, target in self._pinch_assist.get("targets", {}).items():
+            value = float(target)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{src} 的捏合辅助目标必须在 0 到 1 之间")
 
     @property
     def joint_names(self) -> List[str]:
@@ -52,13 +59,32 @@ class GestureMapper:
             corrected[src] = min(max(normalized, 0.0), 1.0)
         return corrected
 
-    def map_mirror(self, curls: Dict[str, float]) -> List[float]:
+    def _apply_pinch_assist(
+        self,
+        values: Dict[str, float],
+        pinch_strength: float,
+    ) -> Dict[str, float]:
+        """只增强配置过的捏合通道，不改变其他手指。"""
+        assisted = dict(values)
+        if not self._pinch_assist.get("enabled", False):
+            return assisted
+        strength = min(max(float(pinch_strength), 0.0), 1.0)
+        for src, target in self._pinch_assist.get("targets", {}).items():
+            assisted[src] = max(assisted.get(src, 0.0), float(target) * strength)
+        return assisted
+
+    def map_mirror(
+        self,
+        curls: Dict[str, float],
+        pinch_strength: float = 0.0,
+    ) -> List[float]:
         """连续映射: 弯曲度 -> 关节位置。
 
         range = [开, 合]: curl=0 输出 range[0], curl=1 输出 range[1]。
         src 为 null 的关节保持 range[0]。
         """
         calibrated = self.calibrate_inputs(curls)
+        calibrated = self._apply_pinch_assist(calibrated, pinch_strength)
         out = []
         for j in self._joints:
             lo, hi = j["range"]

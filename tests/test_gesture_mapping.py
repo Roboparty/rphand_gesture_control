@@ -16,6 +16,18 @@ CALIBRATION = {
     "thumb_spread": {"open": 0.16},
 }
 
+PINCH_JOINTS = [
+    {"name": "thumb_bend", "src": "thumb", "range": [0, 10000]},
+    {"name": "thumb_rotate", "src": "thumb_spread", "range": [0, 10000]},
+    {"name": "index_finger", "src": "index", "range": [0, 10000]},
+    {"name": "middle_finger", "src": "middle", "range": [0, 10000]},
+]
+
+PINCH_ASSIST = {
+    "enabled": True,
+    "targets": {"thumb": 0.8, "thumb_spread": 0.6, "index": 0.85},
+}
+
 
 def test_open_baseline_maps_to_fully_open_and_closed_endpoint_is_preserved():
     mapper = GestureMapper(JOINTS, {}, CALIBRATION)
@@ -95,3 +107,38 @@ def test_real_hardware_thumb_and_index_closed_samples_reach_full_travel():
     assert positions[2] == pytest.approx(10000.0)
     assert positions[1] == pytest.approx(0.0)
     assert positions[3:] == pytest.approx([0.0, 0.0, 0.0])
+
+
+def test_pinch_assist_progressively_enhances_only_configured_sources():
+    mapper = GestureMapper(PINCH_JOINTS, {}, {}, PINCH_ASSIST)
+    inputs = {"thumb": 0.0, "thumb_spread": 0.0, "index": 0.0, "middle": 0.2}
+
+    half = mapper.map_mirror(inputs, pinch_strength=0.5)
+    full = mapper.map_mirror(inputs, pinch_strength=1.0)
+
+    assert half == pytest.approx([4000, 3000, 4250, 2000])
+    assert full == pytest.approx([8000, 6000, 8500, 2000])
+
+
+def test_disabled_pinch_assist_preserves_plain_continuous_mapping():
+    mapper = GestureMapper(
+        PINCH_JOINTS,
+        {},
+        {},
+        {"enabled": False, "targets": PINCH_ASSIST["targets"]},
+    )
+    inputs = {"thumb": 0.1, "thumb_spread": 0.2, "index": 0.3, "middle": 0.4}
+
+    assert mapper.map_mirror(inputs, pinch_strength=1.0) == pytest.approx(
+        [1000, 2000, 3000, 4000]
+    )
+
+
+def test_pinch_assist_rejects_targets_outside_normalized_range():
+    with pytest.raises(ValueError, match="捏合辅助目标必须在 0 到 1 之间"):
+        GestureMapper(
+            PINCH_JOINTS,
+            {},
+            {},
+            {"enabled": True, "targets": {"thumb": 1.1}},
+        )

@@ -203,6 +203,7 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
         cfg["hand"]["joints"],
         cfg.get("presets", {}),
         cfg["hand"].get("input_calibration", {}),
+        cfg["hand"].get("pinch_assist", {}),
     )
     driver = make_driver(cfg, mapper.joint_names)
     resources.driver = driver
@@ -278,7 +279,10 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                 vals["thumb_spread"] = obs.thumb_spread
                 display_inputs = mapper.calibrate_inputs(vals)
                 if mode == "mirror":
-                    positions = mapper.map_mirror(vals)
+                    positions = mapper.map_mirror(
+                        vals,
+                        pinch_strength=obs.pinch_strength,
+                    )
                 elif mode == "rps":
                     # 石头剪刀布: 玩家手势稳定后, 机械手出必胜招
                     gesture_history.append(obs.gesture)

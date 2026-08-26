@@ -12,6 +12,7 @@ class FakeObservation:
         self.detected = detected
         self.curls = {"thumb": 0.8, "index": 0.4}
         self.thumb_spread = 0.0
+        self.pinch_strength = 0.75
         self.gesture = "unknown"
 
 
@@ -35,10 +36,14 @@ class TwoJointMapper:
     joint_names = ["joint_1", "joint_2"]
     num_joints = 2
 
+    def __init__(self):
+        self.pinch_strengths = []
+
     def calibrate_inputs(self, values):
         return dict(values)
 
-    def map_mirror(self, _values):
+    def map_mirror(self, _values, pinch_strength=0.0):
+        self.pinch_strengths.append(pinch_strength)
         return [8000.0, 4000.0]
 
     def map_preset(self, _gesture):
@@ -105,12 +110,13 @@ def test_main_sends_safe_return_commands_when_tracking_is_lost(monkeypatch):
         }
     }
     driver = RecordingDriver()
+    mapper = TwoJointMapper()
     keys = iter([0, 0, ord("q")])
     monotonic_times = iter([0.0, 0.8, 1.3])
 
     monkeypatch.setattr(app, "load_config", lambda _path: config)
     monkeypatch.setattr(app, "GestureRecognizer", lambda **_kwargs: SequenceRecognizer())
-    monkeypatch.setattr(app, "GestureMapper", lambda *_args, **_kwargs: TwoJointMapper())
+    monkeypatch.setattr(app, "GestureMapper", lambda *_args, **_kwargs: mapper)
     monkeypatch.setattr(app, "make_driver", lambda _cfg, _names: driver)
     monkeypatch.setattr(app.cv2, "VideoCapture", lambda *_args: ThreeFrameCamera())
     monkeypatch.setattr(app.cv2, "waitKey", lambda _delay: next(keys))
@@ -128,3 +134,4 @@ def test_main_sends_safe_return_commands_when_tracking_is_lost(monkeypatch):
         [4000.0, 2000.0],
         [0.0, 0.0],
     ]
+    assert mapper.pinch_strengths == [0.75]

@@ -11,6 +11,7 @@ class Observation:
     detected = True
     curls = {"thumb": 0.5, "index": 0.5}
     thumb_spread = 0.0
+    pinch_strength = 0.0
     gesture = "unknown"
 
 
@@ -36,7 +37,7 @@ class Mapper:
     def calibrate_inputs(self, values):
         return dict(values)
 
-    def map_mirror(self, _values):
+    def map_mirror(self, _values, pinch_strength=0.0):
         return [5000.0]
 
 
