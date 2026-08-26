@@ -22,6 +22,96 @@ body,
   position: relative;
 }
 
+#startup-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(24px, 5vh, 48px) clamp(28px, 5vw, 64px);
+  background: #f7fbff;
+  color: #182230;
+  opacity: 1;
+  transition: opacity 240ms ease;
+}
+
+#startup-screen[data-state="ready"] {
+  pointer-events: none;
+  opacity: 0;
+}
+
+#startup-screen[data-state="error"] {
+  color: #b42318;
+}
+
+.startup-brand {
+  display: block;
+  width: clamp(128px, 16vw, 180px);
+  height: auto;
+}
+
+.startup-center {
+  align-self: center;
+  justify-self: center;
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.startup-runner {
+  width: clamp(96px, 14vw, 132px);
+  aspect-ratio: 192 / 208;
+  overflow: hidden;
+}
+
+.startup-runner-strip {
+  width: 1600%;
+  height: 100%;
+  background: url('assets/atom01-loading-runner-16.webp') left center / 100% 100% no-repeat;
+  animation: startup-runner-cycle 800ms steps(16, end) infinite;
+  will-change: transform;
+}
+
+#startup-label {
+  min-width: 92px;
+  margin: 0;
+  color: #344054;
+  font-size: 15px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.startup-progress {
+  justify-self: center;
+  width: min(440px, 72vw);
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #d7e3f4;
+}
+
+#startup-progress-bar {
+  display: block;
+  width: 8%;
+  height: 100%;
+  border-radius: inherit;
+  background: #1769e0;
+  transition: width 220ms ease;
+}
+
+#startup-screen[data-state="error"] #startup-progress-bar {
+  background: #d92d20;
+}
+
+@keyframes startup-runner-cycle {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
 #frame {
   position: absolute;
   width: 100%;
@@ -182,6 +272,18 @@ body,
   padding: 12px 16px;
   color: #fff;
   background: rgba(0, 0, 0, 0.76);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #startup-screen,
+  #startup-progress-bar {
+    transition: none;
+  }
+
+  .startup-runner-strip {
+    animation: none;
+    transform: translateX(-50%);
+  }
 }
 
 @container (max-width: 190px) {

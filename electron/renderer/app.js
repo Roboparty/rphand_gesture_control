@@ -7,11 +7,58 @@ const modeSelect = document.getElementById('mode-select');
 const recoveryButton = document.getElementById('recover-control');
 const stopButton = document.getElementById('emergency-stop');
 const processState = document.getElementById('process-state');
+const startupScreen = document.getElementById('startup-screen');
+const startupLabel = document.getElementById('startup-label');
+const startupProgressElement = document.getElementById('startup-progress');
+const startupProgressBar = document.getElementById('startup-progress-bar');
 let emergencyLatched = false;
 let emergencyRequested = false;
 let pendingDetection = null;
 let pendingSending = null;
 let pendingMode = null;
+let startupTick = 0;
+let startupValue = 8;
+let startupFinished = false;
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function renderStartupProgress(value) {
+  startupValue = Math.min(Math.max(value, 0), 100);
+  startupProgressBar.style.width = `${startupValue}%`;
+  startupProgressElement.setAttribute('aria-valuenow', `${Math.round(startupValue)}`);
+}
+
+const startupProgress = {
+  setAtLeast(value) {
+    if (!startupFinished) renderStartupProgress(Math.max(startupValue, value));
+  },
+  setComplete() {
+    if (startupFinished) return;
+    startupFinished = true;
+    clearInterval(startupTimer);
+    renderStartupProgress(100);
+    startupScreen.dataset.state = 'ready';
+    setTimeout(() => {
+      startupScreen.hidden = true;
+    }, reduceMotion ? 0 : 260);
+  },
+  fail(message) {
+    clearInterval(startupTimer);
+    startupScreen.dataset.state = 'error';
+    startupLabel.textContent = message || '启动失败';
+  },
+};
+
+const startupTimer = setInterval(() => {
+  startupProgress.setAtLeast(window.rpHandStartup.nextSoftProgress(startupValue));
+  if (!reduceMotion) {
+    startupTick += 1;
+    startupLabel.textContent = window.rpHandStartup.loadingLabel(startupTick);
+  }
+}, 360);
+
+function completeStartupOnce() {
+  startupProgress.setComplete();
+}
 
 function updateLayout() {
   if (!frame.naturalWidth || !frame.naturalHeight) return;
@@ -115,6 +162,7 @@ modeSelect.addEventListener('change', () => {
   window.rpHand.sendCommand(`mode_${modeSelect.value}`);
 });
 frame.addEventListener('load', updateLayout);
+frame.addEventListener('load', completeStartupOnce);
 window.addEventListener('resize', updateLayout);
 window.addEventListener('keydown', (event) => {
   if (event.repeat) return;
@@ -132,12 +180,16 @@ window.addEventListener('keydown', (event) => {
 
 window.rpHand.onFrame(({ jpeg, state }) => {
   frame.src = `data:image/jpeg;base64,${jpeg}`;
+  startupProgress.setAtLeast(96);
   applyRuntimeState(state);
   processState.hidden = true;
 });
 
 window.rpHand.onProcessState((state) => {
-  if (state.running) return;
+  if (state.running) {
+    startupProgress.setAtLeast(24);
+    return;
+  }
   stopButton.disabled = true;
   recoveryButton.disabled = true;
   detectionToggle.disabled = true;
@@ -146,4 +198,5 @@ window.rpHand.onProcessState((state) => {
   processState.textContent = state.error
     || `RP-Hand process exited (${state.code ?? 'unknown'})`;
   processState.hidden = false;
+  if (!startupFinished) startupProgress.fail(processState.textContent);
 });

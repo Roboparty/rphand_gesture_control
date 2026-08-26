@@ -8,6 +8,28 @@
   </head>
   <body>
     <main id="stage" aria-label="RP-Hand 摄像头手势控制">
+      <section id="startup-screen" aria-label="RP-Hand 正在启动" aria-live="polite">
+        <img
+          class="startup-brand"
+          src="assets/roboparty.svg"
+          alt="RoboParty"
+        >
+        <div class="startup-center">
+          <div class="startup-runner" aria-hidden="true">
+            <div class="startup-runner-strip"></div>
+          </div>
+          <p id="startup-label">Loading</p>
+        </div>
+        <div
+          id="startup-progress"
+          class="startup-progress"
+          role="progressbar"
+          aria-label="启动进度"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="8"
+        ><span id="startup-progress-bar"></span></div>
+      </section>
       <img id="frame" alt="实时手部识别画面和 RP-Hand 运行数据">
       <section id="control-panel" aria-label="识别与模式控制">
         <div class="control-row">
@@ -54,6 +76,7 @@
       <p id="process-state" role="status" aria-live="polite" hidden></p>
     </main>
     <script src="layout.cjs"></script>
+    <script src="startup-state.cjs"></script>
     <script src="app.js"></script>
   </body>
 </html>

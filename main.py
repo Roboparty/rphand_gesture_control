@@ -28,6 +28,7 @@ from app_runtime import RuntimeResources
 from control_safety import TrackingState, TrackingWatchdog
 from gesture_recognizer import GestureRecognizer, GESTURE_NAMES_CN, FINGERS, HandObservation
 from gesture_mapping import GestureMapper
+from rock_paper_scissors import RockPaperScissorsController
 from drivers.sim_driver import SimHandDriver
 from electron_bridge import (
     KEY_MODE_GESTURE,
@@ -37,11 +38,6 @@ from electron_bridge import (
     KEY_TOGGLE_DETECTION,
     ElectronBridge,
 )
-
-# 石头剪刀布: 玩家手势 -> 机械手必胜出招 (石头->布 / 布->剪刀 / 剪刀->石头)
-RPS_COUNTER = {"fist": "open_palm", "open_palm": "victory", "victory": "fist"}
-RPS_EN = {"fist": "ROCK", "open_palm": "PAPER", "victory": "SCISSORS"}
-
 
 def load_config(path: str) -> dict:
     with open(resolve_app_path(path), "r", encoding="utf-8") as f:
@@ -239,12 +235,10 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
     gesture_history = deque(maxlen=hold_needed)
     last_sent = float("-inf")
     last_gesture_triggered = None
-    # 石头剪刀布状态
-    rps_cooldown = cfg["control"].get("rps_cooldown_s", 3.0)
-    rps_armed = True          # 玩家换手势/收手后才允许下一次出招
-    rps_last_used = None      # 上一局玩家出的手势
-    rps_last_round = 0.0
-    rps_round_msg = ""
+    rps_controller = RockPaperScissorsController(
+        hold_frames=hold_needed,
+        cooldown_s=cfg["control"].get("rps_cooldown_s", 3.0),
+    )
 
     print("运行中...  q=退出  m=切换模式  空格=暂停/恢复发送  e=紧急停止  r=受控恢复")
     fail_count = 0
@@ -284,31 +278,15 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                         pinch_strength=obs.pinch_strength,
                     )
                 elif mode == "rps":
-                    # 石头剪刀布: 玩家手势稳定后, 机械手出必胜招
-                    gesture_history.append(obs.gesture)
-                    stable = (len(gesture_history) == hold_needed
-                              and len(set(gesture_history)) == 1)
-                    g = gesture_history[-1] if gesture_history else None
-                    now_t = time.time()
-                    if obs.gesture != rps_last_used:
-                        rps_armed = True  # 玩家换了手势, 允许再出招
-                    if stable and g in RPS_COUNTER and rps_armed \
-                            and now_t - rps_last_round >= rps_cooldown:
-                        counter = RPS_COUNTER[g]
-                        pose = mapper.map_preset(counter)
-                        if pose is not None:
-                            positions = pose
-                            rps_armed = False
-                            rps_last_used = g
-                            rps_last_round = now_t
-                            rps_round_msg = (f"You: {RPS_EN[g]}   Me: {RPS_EN[counter]}"
-                                             f"   ->  I WIN!")
-                            print(f"[猜拳] 你出{GESTURE_NAMES_CN.get(g, g)}, "
-                                  f"我出{GESTURE_NAMES_CN.get(counter, counter)}, 我赢了")
-                    elif stable and g in RPS_COUNTER and not rps_armed:
-                        remain = rps_cooldown - (now_t - rps_last_round)
-                        if remain > 0:
-                            rps_round_msg = f"Next round in {remain:.0f}s (change gesture)"
+                    rps_decision = rps_controller.update(
+                        obs.gesture,
+                        detected=True,
+                        now=time.time(),
+                        map_preset=mapper.map_preset,
+                    )
+                    positions = rps_decision.positions
+                    if rps_decision.log_message:
+                        print(rps_decision.log_message)
                 else:  # gesture 模式: 手势稳定 hold_needed 帧才触发预设动作
                     gesture_history.append(obs.gesture)
                     stable = (len(gesture_history) == hold_needed
@@ -321,9 +299,12 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                             last_gesture_triggered = g
                             print(f"[手势触发] {g} -> {GESTURE_NAMES_CN.get(g, g)}")
             elif mode == "rps":
-                # 玩家收手 -> 重新武装, 允许相同手势再来一局
-                rps_armed = True
-                gesture_history.clear()
+                rps_controller.update(
+                    None,
+                    detected=False,
+                    now=time.time(),
+                    map_preset=mapper.map_preset,
+                )
             elif not obs.detected:
                 gesture_history.clear()
 
@@ -363,7 +344,7 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
             pos_max = max(max(j["range"]) for j in cfg["hand"]["joints"])
             draw_hud(frame, obs, hud_positions, mapper.joint_names,
                      mode, sending, driver.is_connected, pos_max,
-                     banner=safety_banner or (rps_round_msg if mode == "rps" else ""),
+                     banner=safety_banner or (rps_controller.banner if mode == "rps" else ""),
                      display_inputs=display_inputs,
                      light_panel=bridge is not None)
             if bridge is None:
@@ -391,8 +372,7 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                 }[key]
                 gesture_history.clear()
                 last_gesture_triggered = None
-                rps_armed = True
-                rps_round_msg = ""
+                rps_controller.reset()
                 print(f"切换到 {mode} 模式")
             elif key == KEY_TOGGLE_DETECTION:
                 detection_enabled = not detection_enabled
@@ -402,16 +382,14 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                     watchdog.resume_tracking_policy(now)
                 gesture_history.clear()
                 last_gesture_triggered = None
-                rps_armed = True
-                rps_round_msg = ""
+                rps_controller.reset()
                 print("已开启手部识别" if detection_enabled else "已关闭手部识别")
             elif key == ord("m"):
                 modes = ["mirror", "gesture", "rps"]
                 mode = modes[(modes.index(mode) + 1) % len(modes)]
                 gesture_history.clear()
                 last_gesture_triggered = None
-                rps_armed = True
-                rps_round_msg = ""
+                rps_controller.reset()
                 print(f"切换到 {mode} 模式")
             elif key == ord(" "):
                 if watchdog.state is TrackingState.STOPPED:
@@ -435,8 +413,7 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                     sending = False
                     gesture_history.clear()
                     last_gesture_triggered = None
-                    rps_armed = True
-                    rps_round_msg = ""
+                    rps_controller.reset()
                     print("控制已恢复, 正在安全回张; 请确认状态后重新开启识别与发送")
                 else:
                     print("恢复控制失败, 急停保持锁定")
