@@ -57,8 +57,8 @@ test('keeps controls inside a narrow window when the camera returns a larger fra
   );
 });
 
-test('reserves enough height for all three control rows', () => {
+test('reserves enough height for all four control rows', () => {
   const layout = computeLayout(1280, 720, 1280, 720);
 
-  assert.equal(layout.controls.height >= 156, true);
+  assert.equal(layout.controls.height >= 204, true);
 });

@@ -2,6 +2,7 @@ const stage = document.getElementById('stage');
 const frame = document.getElementById('frame');
 const controlPanel = document.getElementById('control-panel');
 const detectionToggle = document.getElementById('detection-toggle');
+const sendingToggle = document.getElementById('sending-toggle');
 const modeSelect = document.getElementById('mode-select');
 const recoveryButton = document.getElementById('recover-control');
 const stopButton = document.getElementById('emergency-stop');
@@ -9,6 +10,7 @@ const processState = document.getElementById('process-state');
 let emergencyLatched = false;
 let emergencyRequested = false;
 let pendingDetection = null;
+let pendingSending = null;
 let pendingMode = null;
 
 function updateLayout() {
@@ -49,6 +51,7 @@ function applyRuntimeState(state) {
   stopButton.setAttribute('aria-pressed', emergencyLatched ? 'true' : 'false');
   recoveryButton.disabled = !stopped;
   detectionToggle.disabled = stopped;
+  sendingToggle.disabled = stopped;
   modeSelect.disabled = stopped;
   if (pendingDetection === state.detection_enabled) {
     pendingDetection = null;
@@ -58,6 +61,14 @@ function applyRuntimeState(state) {
       'aria-checked',
       state.detection_enabled ? 'true' : 'false',
     );
+  }
+  if (stopped) {
+    pendingSending = null;
+  } else if (pendingSending === state.sending) {
+    pendingSending = null;
+  }
+  if (pendingSending === null) {
+    sendingToggle.setAttribute('aria-checked', state.sending ? 'true' : 'false');
   }
   if (pendingMode === state.mode) {
     pendingMode = null;
@@ -84,8 +95,16 @@ function recoverControl() {
   if (confirmed) window.rpHand.sendCommand('recover_control');
 }
 
+function toggleSending() {
+  if (sendingToggle.disabled) return;
+  pendingSending = sendingToggle.getAttribute('aria-checked') !== 'true';
+  sendingToggle.setAttribute('aria-checked', pendingSending ? 'true' : 'false');
+  window.rpHand.sendCommand('toggle_pause');
+}
+
 stopButton.addEventListener('click', emergencyStop);
 recoveryButton.addEventListener('click', recoverControl);
+sendingToggle.addEventListener('click', toggleSending);
 detectionToggle.addEventListener('click', () => {
   pendingDetection = detectionToggle.getAttribute('aria-checked') !== 'true';
   detectionToggle.setAttribute('aria-checked', pendingDetection ? 'true' : 'false');
@@ -108,7 +127,7 @@ window.addEventListener('keydown', (event) => {
   if (key === 'm') window.rpHand.sendCommand('cycle_mode');
   if (event.code === 'Space') {
     event.preventDefault();
-    window.rpHand.sendCommand('toggle_pause');
+    toggleSending();
   }
 });
 
@@ -123,6 +142,7 @@ window.rpHand.onProcessState((state) => {
   stopButton.disabled = true;
   recoveryButton.disabled = true;
   detectionToggle.disabled = true;
+  sendingToggle.disabled = true;
   modeSelect.disabled = true;
   processState.textContent = state.error
     || `RP-Hand process exited (${state.code ?? 'unknown'})`;

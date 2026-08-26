@@ -50,10 +50,27 @@ test('prevents stale frames from reverting optimistic GUI control state', () => 
   assert.match(appJs, /pendingMode/);
 });
 
+test('exposes an independent sending switch synchronized with runtime state', () => {
+  assert.match(html, /id="sending-toggle"/);
+  assert.match(html, /id="sending-toggle"[\s\S]*?role="switch"/);
+  assert.match(appJs, /pendingSending/);
+  assert.match(appJs, /state\.sending/);
+  assert.match(appJs, /sendCommand\('toggle_pause'\)/);
+});
+
+test('uses the same sending toggle for the button and Space shortcut', () => {
+  assert.match(appJs, /sendingToggle\.addEventListener\('click', toggleSending\)/);
+  assert.match(appJs, /event\.code === 'Space'[\s\S]*?toggleSending\(\)/);
+});
+
 test('keeps controls readable and contained in a narrow HUD panel', () => {
   assert.match(css, /container-type:\s*inline-size/);
   assert.match(css, /@container\s*\(max-width:\s*190px\)/);
   assert.match(css, /#mode-select[\s\S]*?max-width:\s*100%/);
   assert.match(css, /\.switch-track[\s\S]*?background:\s*#667085/);
   assert.match(css, /#mode-select[\s\S]*?border:\s*1px solid #667085/);
+});
+
+test('keeps the sending switch at least 44 pixels tall', () => {
+  assert.match(css, /#sending-toggle[\s\S]*?min-height:\s*44px/);
 });
