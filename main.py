@@ -26,10 +26,16 @@ import yaml
 from app_paths import app_dir, resolve_app_path
 from app_runtime import RuntimeResources
 from control_safety import TrackingState, TrackingWatchdog
-from gesture_recognizer import GestureRecognizer, GESTURE_NAMES_CN, FINGERS
+from gesture_recognizer import GestureRecognizer, GESTURE_NAMES_CN, FINGERS, HandObservation
 from gesture_mapping import GestureMapper
 from drivers.sim_driver import SimHandDriver
-from electron_bridge import ElectronBridge
+from electron_bridge import (
+    KEY_MODE_GESTURE,
+    KEY_MODE_MIRROR,
+    KEY_MODE_RPS,
+    KEY_TOGGLE_DETECTION,
+    ElectronBridge,
+)
 
 # 石头剪刀布: 玩家手势 -> 机械手必胜出招 (石头->布 / 布->剪刀 / 剪刀->石头)
 RPS_COUNTER = {"fist": "open_palm", "open_palm": "victory", "victory": "fist"}
@@ -67,7 +73,7 @@ def make_driver(cfg: dict, joint_names):
 # HUD 绘制
 # ----------------------------------------------------------------------
 def draw_hud(frame, obs, positions, joint_names, mode, sending, driver_ok, pos_max=10000,
-             banner=""):
+             banner="", display_inputs=None, light_panel=False):
     h, w = frame.shape[:2]
     # 底部对战信息条
     if banner:
@@ -75,53 +81,75 @@ def draw_hud(frame, obs, positions, joint_names, mode, sending, driver_ok, pos_m
         cv2.putText(frame, banner, (16, h - 16), cv2.FONT_HERSHEY_SIMPLEX,
                     0.9, (0, 255, 255), 2)
     panel_w = 320
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (w - panel_w, 0), (w, h), (30, 30, 30), -1)
-    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
+    if light_panel:
+        cv2.rectangle(frame, (w - panel_w, 0), (w, h), (255, 251, 247), -1)
+        primary = (224, 105, 23)
+        text = (48, 34, 24)
+        muted = (133, 112, 102)
+        track = (238, 228, 220)
+        success = (85, 148, 7)
+        danger = (32, 45, 217)
+        finger_fill = primary
+        thumb_fill = (214, 129, 47)
+        joint_fill = (154, 126, 22)
+    else:
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (w - panel_w, 0), (w, h), (30, 30, 30), -1)
+        cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
+        primary = (255, 255, 0)
+        text = (255, 255, 255)
+        muted = (180, 180, 180)
+        track = (80, 80, 80)
+        success = (0, 255, 0)
+        danger = (0, 0, 255)
+        finger_fill = (0, 200, 255)
+        thumb_fill = (255, 160, 0)
+        joint_fill = (0, 255, 120)
 
     x0 = w - panel_w + 16
     y = 34
-    cv2.putText(frame, f"Mode: {mode}", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+    cv2.putText(frame, f"Mode: {mode}", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, primary, 2)
     y += 30
     status = "SENDING" if sending else "PAUSED (Space)"
-    color = (0, 255, 0) if (sending and driver_ok) else (0, 0, 255)
+    color = success if (sending and driver_ok) else danger
     cv2.putText(frame, status, (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     y += 30
     gesture_cn = GESTURE_NAMES_CN.get(obs.gesture, obs.gesture)
-    cv2.putText(frame, f"Gesture: {obs.gesture}", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+    cv2.putText(frame, f"Gesture: {obs.gesture}", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, text, 1)
     y += 24
     # 中文手势名可能因 OpenCV 字体缺字, 控制台同步打印, 画面上显示英文即可
-    cv2.putText(frame, f"({gesture_cn})", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+    cv2.putText(frame, f"({gesture_cn})", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, muted, 1)
     y += 30
 
     # 手指弯曲度条
     if obs.detected:
+        display_inputs = display_inputs or {}
         for f in FINGERS:
-            v = obs.curls[f]
-            cv2.putText(frame, f, (x0, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
+            v = display_inputs.get(f, obs.curls[f])
+            cv2.putText(frame, f, (x0, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, muted, 1)
             bx = x0 + 70
-            cv2.rectangle(frame, (bx, y - 8), (bx + 150, y + 6), (80, 80, 80), -1)
-            cv2.rectangle(frame, (bx, y - 8), (bx + int(150 * v), y + 6), (0, 200, 255), -1)
+            cv2.rectangle(frame, (bx, y - 8), (bx + 150, y + 6), track, -1)
+            cv2.rectangle(frame, (bx, y - 8), (bx + int(150 * v), y + 6), finger_fill, -1)
             y += 22
         # 拇指侧摆张角条
-        v = obs.thumb_spread
-        cv2.putText(frame, "th_roll", (x0, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
+        v = display_inputs.get("thumb_spread", obs.thumb_spread)
+        cv2.putText(frame, "th_roll", (x0, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, muted, 1)
         bx = x0 + 70
-        cv2.rectangle(frame, (bx, y - 8), (bx + 150, y + 6), (80, 80, 80), -1)
-        cv2.rectangle(frame, (bx, y - 8), (bx + int(150 * v), y + 6), (255, 160, 0), -1)
+        cv2.rectangle(frame, (bx, y - 8), (bx + 150, y + 6), track, -1)
+        cv2.rectangle(frame, (bx, y - 8), (bx + int(150 * v), y + 6), thumb_fill, -1)
         y += 22
     y += 10
 
     # 灵巧手关节位置条
-    cv2.putText(frame, "Hand joints:", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    cv2.putText(frame, "Hand joints:", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, text, 1)
     y += 22
     for name, p in zip(joint_names, positions):
         frac = min(max(p / pos_max, 0.0), 1.0)  # 按最大位置归一化显示
-        cv2.putText(frame, name[:12], (x0, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
+        cv2.putText(frame, name[:12], (x0, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, muted, 1)
         bx = x0 + 110
-        cv2.rectangle(frame, (bx, y - 8), (bx + 110, y + 6), (80, 80, 80), -1)
-        cv2.rectangle(frame, (bx, y - 8), (bx + int(110 * frac), y + 6), (0, 255, 120), -1)
-        cv2.putText(frame, str(int(p)), (bx + 115, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+        cv2.rectangle(frame, (bx, y - 8), (bx + 110, y + 6), track, -1)
+        cv2.rectangle(frame, (bx, y - 8), (bx + int(110 * frac), y + 6), joint_fill, -1)
+        cv2.putText(frame, str(int(p)), (bx + 115, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, muted, 1)
         y += 20
 
 
@@ -170,7 +198,11 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
         smooth_factor=rcfg["smooth_factor"],
     )
     resources.recognizer = recognizer
-    mapper = GestureMapper(cfg["hand"]["joints"], cfg.get("presets", {}))
+    mapper = GestureMapper(
+        cfg["hand"]["joints"],
+        cfg.get("presets", {}),
+        cfg["hand"].get("input_calibration", {}),
+    )
     driver = make_driver(cfg, mapper.joint_names)
     resources.driver = driver
     if not driver.connect():
@@ -191,6 +223,7 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
         return 1
 
     mode = cfg["control"]["mode"]
+    detection_enabled = True
     sending = True
     send_interval = 1.0 / max(cfg["control"]["send_rate_hz"], 1)
     tracking_cfg = cfg.get("safety", {}).get("tracking", {})
@@ -231,14 +264,19 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
             if ccfg.get("mirror", True):
                 frame = cv2.flip(frame, 1)
 
-            obs = recognizer.process(frame)
-            recognizer.draw_landmarks(frame, obs)
+            if detection_enabled:
+                obs = recognizer.process(frame)
+                recognizer.draw_landmarks(frame, obs)
+            else:
+                obs = HandObservation()
 
             positions = None
+            display_inputs = None
             if obs.detected:
+                vals = dict(obs.curls)
+                vals["thumb_spread"] = obs.thumb_spread
+                display_inputs = mapper.calibrate_inputs(vals)
                 if mode == "mirror":
-                    vals = dict(obs.curls)
-                    vals["thumb_spread"] = obs.thumb_spread
                     positions = mapper.map_mirror(vals)
                 elif mode == "rps":
                     # 石头剪刀布: 玩家手势稳定后, 机械手出必胜招
@@ -298,7 +336,8 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                 positions is not None
                 or decision.state in {TrackingState.SAFE_RETURN, TrackingState.SAFE_HOLD}
             )
-            if (decision.target is not None and safety_command and sending
+            output_allowed = sending or not detection_enabled
+            if (decision.target is not None and safety_command and output_allowed
                     and driver.is_connected and now - last_sent >= send_interval):
                 if driver.set_joint_positions(decision.target):
                     watchdog.note_output(decision.target)
@@ -319,15 +358,47 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
             pos_max = max(max(j["range"]) for j in cfg["hand"]["joints"])
             draw_hud(frame, obs, hud_positions, mapper.joint_names,
                      mode, sending, driver.is_connected, pos_max,
-                     banner=safety_banner or (rps_round_msg if mode == "rps" else ""))
+                     banner=safety_banner or (rps_round_msg if mode == "rps" else ""),
+                     display_inputs=display_inputs,
+                     light_panel=bridge is not None)
             if bridge is None:
                 cv2.imshow("RP-Hand", frame)
                 key = cv2.waitKey(1) & 0xFF
             else:
-                bridge.submit_frame(frame, now=now)
+                bridge.submit_frame(
+                    frame,
+                    now=now,
+                    state={
+                        "mode": mode,
+                        "detection_enabled": detection_enabled,
+                        "sending": sending,
+                    },
+                )
                 key = bridge.poll_key()
             if key == ord("q"):
                 break
+            elif key in {KEY_MODE_MIRROR, KEY_MODE_GESTURE, KEY_MODE_RPS}:
+                mode = {
+                    KEY_MODE_MIRROR: "mirror",
+                    KEY_MODE_GESTURE: "gesture",
+                    KEY_MODE_RPS: "rps",
+                }[key]
+                gesture_history.clear()
+                last_gesture_triggered = None
+                rps_armed = True
+                rps_round_msg = ""
+                print(f"切换到 {mode} 模式")
+            elif key == KEY_TOGGLE_DETECTION:
+                detection_enabled = not detection_enabled
+                if not detection_enabled:
+                    watchdog.request_safe_return(now)
+                else:
+                    watchdog.resume_tracking_policy(now)
+                gesture_history.clear()
+                last_gesture_triggered = None
+                rps_armed = True
+                rps_round_msg = ""
+                print("已开启手部识别" if detection_enabled else "已关闭手部识别")
             elif key == ord("m"):
                 modes = ["mirror", "gesture", "rps"]
                 mode = modes[(modes.index(mode) + 1) % len(modes)]

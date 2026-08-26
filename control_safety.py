@@ -56,6 +56,7 @@ class TrackingWatchdog:
         self._last_target: Optional[list[float]] = None
         self._last_output: Optional[list[float]] = None
         self._return_from: Optional[list[float]] = None
+        self._safe_return_forced = False
         self._stop_pending = False
 
     @property
@@ -74,6 +75,34 @@ class TrackingWatchdog:
             return False
         self._state = TrackingState.STOPPED
         self._stop_pending = True
+        return True
+
+    def request_safe_return(self, now: float) -> bool:
+        """Start a deliberate return to the configured open/safe pose.
+
+        This path is used when hand recognition is disabled by the operator. It
+        intentionally overrides a tracking-loss ``stop`` policy, because the
+        operator requested a controlled open pose rather than a passive hold.
+        """
+
+        if self._state is TrackingState.STOPPED:
+            return False
+        held_target = self._last_output or self._last_target
+        self._return_from = list(held_target or self._safe_positions)
+        self._last_seen_at = float(now) - self._grace_period_s
+        self._safe_return_forced = True
+        self._state = TrackingState.SAFE_RETURN
+        return True
+
+    def resume_tracking_policy(self, now: float) -> bool:
+        """Restore the configured tracking-loss behavior after recognition resumes."""
+
+        if self._state is TrackingState.STOPPED:
+            return False
+        self._safe_return_forced = False
+        self._return_from = None
+        self._last_seen_at = float(now)
+        self._state = TrackingState.GRACE
         return True
 
     def update(
@@ -97,6 +126,7 @@ class TrackingWatchdog:
         if is_tracking:
             self._last_seen_at = float(now)
             self._return_from = None
+            self._safe_return_forced = False
             self._state = TrackingState.TRACKING
             if observed_positions is not None:
                 target = self._copy_positions(observed_positions)
@@ -119,7 +149,7 @@ class TrackingWatchdog:
                 list(held_target) if held_target is not None else None,
             )
 
-        if self._lost_action == "stop":
+        if self._lost_action == "stop" and not self._safe_return_forced:
             self._state = TrackingState.STOPPED
             return SafetyDecision(self._state, None, should_stop=True)
 

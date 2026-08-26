@@ -35,6 +35,9 @@ class TwoJointMapper:
     joint_names = ["joint_1", "joint_2"]
     num_joints = 2
 
+    def calibrate_inputs(self, values):
+        return dict(values)
+
     def map_mirror(self, _values):
         return [8000.0, 4000.0]
 

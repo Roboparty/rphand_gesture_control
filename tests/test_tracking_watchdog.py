@@ -22,6 +22,29 @@ def test_waits_without_command_before_the_first_hand_is_seen():
     assert decision.should_stop is False
 
 
+def test_explicit_safe_return_opens_even_before_a_hand_is_seen():
+    watchdog = make_watchdog(lost_action="stop")
+
+    assert watchdog.request_safe_return(now=0.0) is True
+    decision = watchdog.update(None, now=0.1)
+
+    assert decision.state in {TrackingState.SAFE_RETURN, TrackingState.SAFE_HOLD}
+    assert decision.target == [0.0, 0.0]
+    assert decision.should_stop is False
+
+
+def test_resuming_detection_restores_the_configured_tracking_loss_policy():
+    watchdog = make_watchdog(lost_action="stop")
+    watchdog.request_safe_return(now=0.0)
+    watchdog.update(None, now=0.1)
+
+    assert watchdog.resume_tracking_policy(now=0.2) is True
+    decision = watchdog.update(None, now=0.6)
+
+    assert decision.state is TrackingState.STOPPED
+    assert decision.should_stop is True
+
+
 def test_short_tracking_gap_holds_the_last_sent_command():
     watchdog = make_watchdog()
     watchdog.update([8000.0, 4000.0], now=0.0)

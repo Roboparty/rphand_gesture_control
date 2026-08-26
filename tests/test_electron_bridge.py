@@ -7,7 +7,14 @@ import json
 import cv2
 import numpy as np
 
-from electron_bridge import ElectronBridge, parse_command_line
+from electron_bridge import (
+    KEY_MODE_GESTURE,
+    KEY_MODE_MIRROR,
+    KEY_MODE_RPS,
+    KEY_TOGGLE_DETECTION,
+    ElectronBridge,
+    parse_command_line,
+)
 
 
 def test_parse_command_line_maps_only_existing_keyboard_actions():
@@ -15,8 +22,13 @@ def test_parse_command_line_maps_only_existing_keyboard_actions():
     assert parse_command_line('{"type":"command","command":"cycle_mode"}') == ord("m")
     assert parse_command_line('{"type":"command","command":"toggle_pause"}') == ord(" ")
     assert parse_command_line('{"type":"command","command":"emergency_stop"}') == ord("e")
+    assert parse_command_line('{"type":"command","command":"toggle_detection"}') == KEY_TOGGLE_DETECTION
+    assert parse_command_line('{"type":"command","command":"mode_mirror"}') == KEY_MODE_MIRROR
+    assert parse_command_line('{"type":"command","command":"mode_gesture"}') == KEY_MODE_GESTURE
+    assert parse_command_line('{"type":"command","command":"mode_rps"}') == KEY_MODE_RPS
     assert parse_command_line('{"type":"command","command":"shell"}') is None
     assert parse_command_line('{"type":"frame","command":"quit"}') is None
+    assert parse_command_line('{"type":"command","command":[]}') is None
     assert parse_command_line("not-json") is None
 
 
@@ -50,3 +62,20 @@ def test_bridge_limits_only_ui_frame_submissions():
     assert bridge.submit_frame(frame, now=1.05) is False
     assert bridge.submit_frame(frame, now=1.10) is True
     bridge.close()
+
+
+def test_bridge_includes_runtime_state_with_the_frame():
+    output = io.StringIO()
+    bridge = ElectronBridge(io.StringIO(""), output)
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    state = {
+        "mode": "gesture",
+        "detection_enabled": False,
+        "sending": True,
+    }
+
+    assert bridge.submit_frame(frame, now=1.0, state=state) is True
+    bridge.close()
+
+    message = json.loads(output.getvalue().strip())
+    assert message["state"] == state

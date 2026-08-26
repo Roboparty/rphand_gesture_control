@@ -13,11 +13,21 @@ import cv2
 import numpy as np
 
 
+KEY_MODE_MIRROR = 0x1001
+KEY_MODE_GESTURE = 0x1002
+KEY_MODE_RPS = 0x1003
+KEY_TOGGLE_DETECTION = 0x1004
+
+
 COMMAND_KEYS = {
     "quit": ord("q"),
     "cycle_mode": ord("m"),
     "toggle_pause": ord(" "),
     "emergency_stop": ord("e"),
+    "toggle_detection": KEY_TOGGLE_DETECTION,
+    "mode_mirror": KEY_MODE_MIRROR,
+    "mode_gesture": KEY_MODE_GESTURE,
+    "mode_rps": KEY_MODE_RPS,
 }
 
 
@@ -30,7 +40,10 @@ def parse_command_line(line: str) -> Optional[int]:
         return None
     if not isinstance(payload, dict) or payload.get("type") != "command":
         return None
-    return COMMAND_KEYS.get(payload.get("command"))
+    command = payload.get("command")
+    if not isinstance(command, str):
+        return None
+    return COMMAND_KEYS.get(command)
 
 
 class ElectronBridge:
@@ -48,7 +61,9 @@ class ElectronBridge:
         self._frame_interval = 1.0 / max(float(max_fps), 1.0)
         self._jpeg_quality = int(jpeg_quality)
         self._commands: queue.Queue[int] = queue.Queue()
-        self._frames: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
+        self._frames: queue.Queue[
+            tuple[np.ndarray, dict[str, object] | None]
+        ] = queue.Queue(maxsize=1)
         self._stop = threading.Event()
         self._last_submitted_at = float("-inf")
         self._sequence = 0
@@ -71,12 +86,18 @@ class ElectronBridge:
         except queue.Empty:
             return 0
 
-    def submit_frame(self, frame: np.ndarray, *, now: float | None = None) -> bool:
+    def submit_frame(
+        self,
+        frame: np.ndarray,
+        *,
+        now: float | None = None,
+        state: dict[str, object] | None = None,
+    ) -> bool:
         submitted_at = time.monotonic() if now is None else float(now)
         if submitted_at - self._last_submitted_at < self._frame_interval:
             return False
         self._last_submitted_at = submitted_at
-        latest = frame.copy()
+        latest = (frame.copy(), None if state is None else dict(state))
         try:
             self._frames.put_nowait(latest)
         except queue.Full:
@@ -102,7 +123,7 @@ class ElectronBridge:
     def _publish_frames(self) -> None:
         while not self._stop.is_set() or not self._frames.empty():
             try:
-                frame = self._frames.get(timeout=0.05)
+                frame, state = self._frames.get(timeout=0.05)
             except queue.Empty:
                 continue
             ok, encoded = cv2.imencode(
@@ -118,6 +139,8 @@ class ElectronBridge:
                 "sequence": self._sequence,
                 "jpeg": base64.b64encode(encoded).decode("ascii"),
             }
+            if state is not None:
+                message["state"] = state
             try:
                 self._output_stream.write(
                     json.dumps(message, separators=(",", ":")) + "\n"
