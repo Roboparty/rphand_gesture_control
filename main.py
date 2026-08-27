@@ -96,6 +96,8 @@ def main(argv=None) -> int:
     log_context = redirect_stdout(sys.stderr) if bridge is not None else nullcontext()
     try:
         with log_context:
+            # 入口统一拥有运行资源；无论 _run 正常返回还是抛出异常，
+            # 离开 with 时都会按确定顺序释放驱动、摄像头和识别器。
             with RuntimeResources(destroy_windows=cv2.destroyAllWindows) as resources:
                 return _run(cfg, args, resources, bridge=bridge)
     finally:
@@ -160,201 +162,198 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
     print("运行中...  q=退出  m=切换模式  空格=暂停/恢复发送  e=紧急停止  r=受控恢复")
     fail_count = 0
     t_start = time.time()
-    try:
-        while True:
-            if args.duration is not None and time.time() - t_start >= args.duration:
-                print(f"已运行 {args.duration:.0f} 秒, 自动安全退出")
+    while True:
+        if args.duration is not None and time.time() - t_start >= args.duration:
+            print(f"已运行 {args.duration:.0f} 秒, 自动安全退出")
+            break
+        ok, frame = cap.read()
+        if not ok:
+            fail_count += 1
+            if fail_count > 30:  # 连续失败约1秒才放弃 (摄像头初始化期可能丢帧)
+                print("持续无法读取摄像头帧, 退出")
                 break
-            ok, frame = cap.read()
-            if not ok:
-                fail_count += 1
-                if fail_count > 30:  # 连续失败约1秒才放弃 (摄像头初始化期可能丢帧)
-                    print("持续无法读取摄像头帧, 退出")
-                    break
-                time.sleep(0.03)
-                continue
-            fail_count = 0
-            if ccfg.get("mirror", True):
-                frame = cv2.flip(frame, 1)
+            time.sleep(0.03)
+            continue
+        fail_count = 0
+        if ccfg.get("mirror", True):
+            frame = cv2.flip(frame, 1)
 
-            if detection_enabled:
-                obs = recognizer.process(frame)
-                recognizer.draw_landmarks(frame, obs)
-            else:
-                obs = HandObservation()
+        if detection_enabled:
+            obs = recognizer.process(frame)
+            recognizer.draw_landmarks(frame, obs)
+        else:
+            obs = HandObservation()
 
-            positions = None
-            display_inputs = None
-            if obs.detected:
-                vals = dict(obs.curls)
-                vals["thumb_spread"] = obs.thumb_spread
-                display_inputs = mapper.calibrate_inputs(vals)
-                if mode == "mirror":
-                    positions = mapper.map_mirror(
-                        vals,
-                        pinch_strength=obs.pinch_strength,
-                    )
-                elif mode == "rps":
-                    rps_decision = rps_controller.update(
-                        obs.gesture,
-                        detected=True,
-                        now=time.time(),
-                        map_preset=mapper.map_preset,
-                    )
-                    positions = rps_decision.positions
-                    if rps_decision.log_message:
-                        print(rps_decision.log_message)
-                else:  # gesture 模式: 手势稳定 hold_needed 帧才触发预设动作
-                    gesture_decision = gesture_controller.update(
-                        obs.gesture,
-                        detected=True,
-                        map_preset=mapper.map_preset,
-                    )
-                    positions = gesture_decision.positions
-                    if gesture_decision.gesture is not None:
-                        gesture = gesture_decision.gesture
-                        print(
-                            f"[手势触发] {gesture} -> "
-                            f"{GESTURE_NAMES_CN.get(gesture, gesture)}"
-                        )
+        positions = None
+        display_inputs = None
+        if obs.detected:
+            vals = dict(obs.curls)
+            vals["thumb_spread"] = obs.thumb_spread
+            display_inputs = mapper.calibrate_inputs(vals)
+            if mode == "mirror":
+                positions = mapper.map_mirror(
+                    vals,
+                    pinch_strength=obs.pinch_strength,
+                )
             elif mode == "rps":
-                rps_controller.update(
-                    None,
-                    detected=False,
+                rps_decision = rps_controller.update(
+                    obs.gesture,
+                    detected=True,
                     now=time.time(),
                     map_preset=mapper.map_preset,
                 )
-            elif mode == "gesture":
-                gesture_controller.update(
-                    None,
-                    detected=False,
+                positions = rps_decision.positions
+                if rps_decision.log_message:
+                    print(rps_decision.log_message)
+            else:  # gesture 模式: 手势稳定 hold_needed 帧才触发预设动作
+                gesture_decision = gesture_controller.update(
+                    obs.gesture,
+                    detected=True,
                     map_preset=mapper.map_preset,
                 )
-
-            now = time.monotonic()
-            decision = watchdog.update(
-                positions,
-                now=now,
-                tracking_detected=obs.detected,
+                positions = gesture_decision.positions
+                if gesture_decision.gesture is not None:
+                    gesture = gesture_decision.gesture
+                    print(
+                        f"[手势触发] {gesture} -> "
+                        f"{GESTURE_NAMES_CN.get(gesture, gesture)}"
+                    )
+        elif mode == "rps":
+            rps_controller.update(
+                None,
+                detected=False,
+                now=time.time(),
+                map_preset=mapper.map_preset,
             )
-            if decision.should_stop:
+        elif mode == "gesture":
+            gesture_controller.update(
+                None,
+                detected=False,
+                map_preset=mapper.map_preset,
+            )
+
+        now = time.monotonic()
+        decision = watchdog.update(
+            positions,
+            now=now,
+            tracking_detected=obs.detected,
+        )
+        if decision.should_stop:
+            driver.stop()
+            sending = False
+
+        safety_command = (
+            positions is not None
+            or decision.state in {TrackingState.SAFE_RETURN, TrackingState.SAFE_HOLD}
+        )
+        output_allowed = sending or not detection_enabled
+        if (decision.target is not None and safety_command and output_allowed
+                and driver.is_connected and now - last_sent >= send_interval):
+            if driver.set_joint_positions(decision.target):
+                watchdog.note_output(decision.target)
+            last_sent = now
+
+        if decision.target is not None:
+            hud_positions = decision.target
+        else:
+            state = driver.get_state()
+            hud_positions = list(state.values()) if state else [0] * mapper.num_joints
+
+        safety_banner = {
+            TrackingState.GRACE: "TRACKING LOST - HOLDING",
+            TrackingState.SAFE_RETURN: "TRACKING LOST - SAFE RETURN",
+            TrackingState.SAFE_HOLD: "SAFE POSE",
+            TrackingState.STOPPED: "EMERGENCY STOP",
+        }.get(decision.state, "")
+        banner = safety_banner or (
+            rps_controller.banner if mode == "rps" else ""
+        )
+        pos_max = max(max(j["range"]) for j in cfg["hand"]["joints"])
+        if bridge is None:
+            draw_hud(
+                frame,
+                obs,
+                hud_positions,
+                mapper.joint_names,
+                mode,
+                sending,
+                driver.is_connected,
+                pos_max,
+                banner=banner,
+                display_inputs=display_inputs,
+            )
+            cv2.imshow("RP-Hand", frame)
+            key = cv2.waitKey(1) & 0xFF
+        else:
+            bridge.submit_frame(
+                frame,
+                now=now,
+                state=build_runtime_state(
+                    mode=mode,
+                    detection_enabled=detection_enabled,
+                    sending=sending,
+                    safety_state=decision.state.value,
+                    observation=obs,
+                    display_inputs=display_inputs,
+                    positions=hud_positions,
+                    joint_names=mapper.joint_names,
+                    position_max=pos_max,
+                    driver_connected=driver.is_connected,
+                    banner=banner,
+                ),
+            )
+            key = bridge.poll_key()
+        if key == ord("q"):
+            break
+        elif key in {KEY_MODE_MIRROR, KEY_MODE_GESTURE, KEY_MODE_RPS}:
+            mode = {
+                KEY_MODE_MIRROR: "mirror",
+                KEY_MODE_GESTURE: "gesture",
+                KEY_MODE_RPS: "rps",
+            }[key]
+            gesture_controller.reset()
+            rps_controller.reset()
+            print(f"切换到 {mode} 模式")
+        elif key == KEY_TOGGLE_DETECTION:
+            detection_enabled = not detection_enabled
+            if not detection_enabled:
+                watchdog.request_safe_return(now)
+            else:
+                watchdog.resume_tracking_policy(now)
+            gesture_controller.reset()
+            rps_controller.reset()
+            print("已开启手部识别" if detection_enabled else "已关闭手部识别")
+        elif key == ord("m"):
+            modes = ["mirror", "gesture", "rps"]
+            mode = modes[(modes.index(mode) + 1) % len(modes)]
+            gesture_controller.reset()
+            rps_controller.reset()
+            print(f"切换到 {mode} 模式")
+        elif key == ord(" "):
+            if watchdog.state is TrackingState.STOPPED:
+                print("急停已锁定, 请排除故障后重启程序")
+            else:
+                sending = not sending
+                print("恢复发送" if sending else "已暂停发送 (灵巧手保持当前姿态)")
+        elif key == ord("e"):
+            if watchdog.force_stop():
                 driver.stop()
                 sending = False
-
-            safety_command = (
-                positions is not None
-                or decision.state in {TrackingState.SAFE_RETURN, TrackingState.SAFE_HOLD}
-            )
-            output_allowed = sending or not detection_enabled
-            if (decision.target is not None and safety_command and output_allowed
-                    and driver.is_connected and now - last_sent >= send_interval):
-                if driver.set_joint_positions(decision.target):
-                    watchdog.note_output(decision.target)
-                last_sent = now
-
-            if decision.target is not None:
-                hud_positions = decision.target
+                print("紧急停止已触发, 排除风险后可执行受控恢复")
+        elif key in {KEY_RECOVER_CONTROL, ord("r")}:
+            if watchdog.state is not TrackingState.STOPPED:
+                print("当前未处于急停状态, 无需恢复")
+            elif driver.recover():
+                # Recovery never resumes vision-driven commands directly.
+                # It first disables tracking and returns to the safe pose.
+                watchdog.recover_to_safe_return(now)
+                detection_enabled = False
+                sending = False
+                gesture_controller.reset()
+                rps_controller.reset()
+                print("控制已恢复, 正在安全回张; 请确认状态后重新开启识别与发送")
             else:
-                state = driver.get_state()
-                hud_positions = list(state.values()) if state else [0] * mapper.num_joints
-
-            safety_banner = {
-                TrackingState.GRACE: "TRACKING LOST - HOLDING",
-                TrackingState.SAFE_RETURN: "TRACKING LOST - SAFE RETURN",
-                TrackingState.SAFE_HOLD: "SAFE POSE",
-                TrackingState.STOPPED: "EMERGENCY STOP",
-            }.get(decision.state, "")
-            banner = safety_banner or (
-                rps_controller.banner if mode == "rps" else ""
-            )
-            pos_max = max(max(j["range"]) for j in cfg["hand"]["joints"])
-            if bridge is None:
-                draw_hud(
-                    frame,
-                    obs,
-                    hud_positions,
-                    mapper.joint_names,
-                    mode,
-                    sending,
-                    driver.is_connected,
-                    pos_max,
-                    banner=banner,
-                    display_inputs=display_inputs,
-                )
-                cv2.imshow("RP-Hand", frame)
-                key = cv2.waitKey(1) & 0xFF
-            else:
-                bridge.submit_frame(
-                    frame,
-                    now=now,
-                    state=build_runtime_state(
-                        mode=mode,
-                        detection_enabled=detection_enabled,
-                        sending=sending,
-                        safety_state=decision.state.value,
-                        observation=obs,
-                        display_inputs=display_inputs,
-                        positions=hud_positions,
-                        joint_names=mapper.joint_names,
-                        position_max=pos_max,
-                        driver_connected=driver.is_connected,
-                        banner=banner,
-                    ),
-                )
-                key = bridge.poll_key()
-            if key == ord("q"):
-                break
-            elif key in {KEY_MODE_MIRROR, KEY_MODE_GESTURE, KEY_MODE_RPS}:
-                mode = {
-                    KEY_MODE_MIRROR: "mirror",
-                    KEY_MODE_GESTURE: "gesture",
-                    KEY_MODE_RPS: "rps",
-                }[key]
-                gesture_controller.reset()
-                rps_controller.reset()
-                print(f"切换到 {mode} 模式")
-            elif key == KEY_TOGGLE_DETECTION:
-                detection_enabled = not detection_enabled
-                if not detection_enabled:
-                    watchdog.request_safe_return(now)
-                else:
-                    watchdog.resume_tracking_policy(now)
-                gesture_controller.reset()
-                rps_controller.reset()
-                print("已开启手部识别" if detection_enabled else "已关闭手部识别")
-            elif key == ord("m"):
-                modes = ["mirror", "gesture", "rps"]
-                mode = modes[(modes.index(mode) + 1) % len(modes)]
-                gesture_controller.reset()
-                rps_controller.reset()
-                print(f"切换到 {mode} 模式")
-            elif key == ord(" "):
-                if watchdog.state is TrackingState.STOPPED:
-                    print("急停已锁定, 请排除故障后重启程序")
-                else:
-                    sending = not sending
-                    print("恢复发送" if sending else "已暂停发送 (灵巧手保持当前姿态)")
-            elif key == ord("e"):
-                if watchdog.force_stop():
-                    driver.stop()
-                    sending = False
-                    print("紧急停止已触发, 排除风险后可执行受控恢复")
-            elif key in {KEY_RECOVER_CONTROL, ord("r")}:
-                if watchdog.state is not TrackingState.STOPPED:
-                    print("当前未处于急停状态, 无需恢复")
-                elif driver.recover():
-                    # Recovery never resumes vision-driven commands directly.
-                    # It first disables tracking and returns to the safe pose.
-                    watchdog.recover_to_safe_return(now)
-                    detection_enabled = False
-                    sending = False
-                    gesture_controller.reset()
-                    rps_controller.reset()
-                    print("控制已恢复, 正在安全回张; 请确认状态后重新开启识别与发送")
-                else:
-                    print("恢复控制失败, 急停保持锁定")
-    finally:
-        resources.close()
+                print("恢复控制失败, 急停保持锁定")
     return 0
 
 
