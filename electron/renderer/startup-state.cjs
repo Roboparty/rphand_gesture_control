@@ -1,3 +1,4 @@
+// 启动画面的纯状态助手；软进度在首帧到达前停在上限，避免伪装成已完成。
 const SOFT_PROGRESS_LIMIT = 92;
 
 function loadingLabel(tick) {

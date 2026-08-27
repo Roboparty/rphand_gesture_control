@@ -42,11 +42,13 @@ from electron_bridge import (
 )
 
 def load_config(path: str) -> dict:
+    """从开发目录或打包后的资源目录读取 YAML 配置。"""
     with open(resolve_app_path(path), "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def make_driver(cfg: dict, joint_names):
+    """根据配置创建真实 CAN-FD 驱动或无硬件仿真驱动。"""
     dtype = cfg["driver"]["type"]
     if dtype == "lhandpro":
         from drivers.lhandpro_driver import LHandProDriver
@@ -70,6 +72,7 @@ def make_driver(cfg: dict, joint_names):
 
 # ----------------------------------------------------------------------
 def main(argv=None) -> int:
+    """解析启动参数并建立本次运行所需资源的统一生命周期。"""
     if sys.platform == "win32":
         # 控制台切 UTF-8 并设置窗口标题, 避免中文日志乱码
         os.system("chcp 65001 >nul & title RP-Hand手势识别")
@@ -106,6 +109,7 @@ def main(argv=None) -> int:
 
 
 def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
+    """执行实时识别与控制循环；资源释放由调用方统一负责。"""
 
     rcfg = cfg["recognizer"]
     recognizer = GestureRecognizer(

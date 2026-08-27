@@ -11,6 +11,11 @@ FINGERS = ("thumb", "index", "middle", "ring", "pinky")
 
 
 class GestureMapper:
+    """把识别器输出的归一化手部数据转换成各关节目标位置。
+
+    映射分为三步：先校准真实张开/闭合端点，再按需应用捏合辅助，
+    最后根据 ``config.yaml`` 中每个关节的 ``src`` 和 ``range`` 线性换算。
+    """
 
     def __init__(self, joint_cfg: List[dict], presets: Dict[str, List[float]],
                  input_calibration: Optional[Dict[str, dict]] = None,

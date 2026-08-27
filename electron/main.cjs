@@ -1,3 +1,4 @@
+// Electron 主进程：管理窗口、Python 控制后端，以及两者之间的 IPC 生命周期。
 const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
@@ -37,6 +38,7 @@ function startPython() {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
+  // stdout 专用于逐行 JSON 帧协议；普通日志必须由 stderr 转发，避免污染协议。
   readline.createInterface({ input: pythonProcess.stdout }).on('line', (line) => {
     const frame = parseFrameLine(line);
     if (frame && mainWindow && !mainWindow.isDestroyed()) {
@@ -72,6 +74,7 @@ function stopPython() {
   const child = pythonProcess;
   quitRequested = true;
   sendCommand('quit');
+  // 先给后端时间释放摄像头、CAN-FD 和模型；超时后才强制结束进程。
   forceKillTimer = setTimeout(() => {
     if (pythonProcess === child) child.kill();
   }, 2000);
@@ -97,6 +100,7 @@ function createWindow() {
     autoHideMenuBar: true,
     show: false,
     icon: path.resolve(__dirname, '..', 'assets', 'icon.ico'),
+    // 渲染页不获得 Node 权限，只能通过 preload 暴露的最小 IPC 接口通信。
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

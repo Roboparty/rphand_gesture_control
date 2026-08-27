@@ -83,6 +83,7 @@ def _save_results(path: Path, camera_index: int, captures: dict) -> None:
 
 
 def main() -> int:
+    """交互采集张手/握拳样本并输出不连接硬件的角度诊断报告。"""
     args = _parse_args()
     config_path = Path(args.config).resolve()
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))

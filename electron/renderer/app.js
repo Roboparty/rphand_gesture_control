@@ -1,3 +1,4 @@
+// Electron 渲染层控制器：把 Python 运行状态投影到 HUD，并把用户操作发回后端。
 const frame = document.getElementById('frame');
 const detectionToggle = document.getElementById('detection-toggle');
 const sendingToggle = document.getElementById('sending-toggle');
@@ -145,6 +146,7 @@ function applyRuntimeState(state) {
   if (pendingDetection === state.detection_enabled) {
     pendingDetection = null;
   }
+  // pending 值用于即时反馈点击；收到后端确认后，再由真实运行状态接管控件。
   if (pendingDetection === null) {
     detectionToggle.setAttribute(
       'aria-checked',

@@ -1,3 +1,4 @@
+// 把 Python 的诊断输出转发到 Electron 日志，同时隔离日志目标自身的故障。
 function attachLogForwarder(source, destination) {
   if (!source) return () => {};
 

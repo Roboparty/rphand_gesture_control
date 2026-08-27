@@ -1,3 +1,5 @@
+// Electron 与 Python 后端之间的行协议边界：校验命令、帧状态和启动路径。
+// 所有跨进程输入都先在这里收窄，主进程和渲染进程不直接信任原始 JSON。
 const path = require('node:path');
 
 const ALLOWED_COMMANDS = new Set([

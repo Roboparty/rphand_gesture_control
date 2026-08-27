@@ -1,3 +1,4 @@
+// 安全预加载桥：只向渲染页开放控制命令、视频帧和进程状态三个通道。
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('rpHand', {

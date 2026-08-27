@@ -11,6 +11,11 @@ from .base_driver import BaseHandDriver
 
 
 class SimHandDriver(BaseHandDriver):
+    """实现与真实驱动相同接口的内存仿真驱动。
+
+    它不模拟动力学，只记录最近一次关节指令，适合在没有 CAN-FD
+    硬件时验证识别、映射、安全状态机和界面数据链路。
+    """
 
     def __init__(self, joint_names: List[str]):
         self._joint_names = joint_names

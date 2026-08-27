@@ -1,3 +1,4 @@
+// 把 Python 遥测状态整理成只含显示信息的视图模型，DOM 层无需理解控制协议。
 const INPUT_CHANNELS = [
   'thumb',
   'index',

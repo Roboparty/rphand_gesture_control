@@ -12,6 +12,7 @@ from drivers.sim_driver import SimHandDriver
 
 
 def main():
+    """运行五秒无窗口全链路检查，不会连接或驱动真实灵巧手。"""
     with open("config.yaml", "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
