@@ -1,10 +1,22 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from io import BytesIO, TextIOWrapper
 
 import numpy as np
 
 import main as app
+
+
+def test_packaged_diagnostic_stream_is_reconfigured_to_utf8():
+    raw_output = BytesIO()
+    packaged_stream = TextIOWrapper(raw_output, encoding="cp1252")
+
+    app.configure_text_stream_utf8(packaged_stream)
+    packaged_stream.write("仿真灵巧手已连接")
+    packaged_stream.flush()
+
+    assert raw_output.getvalue().decode("utf-8") == "仿真灵巧手已连接"
 
 
 class Observation:

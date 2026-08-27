@@ -52,6 +52,18 @@ EXIT_CAMERA_READ_FAILED = 1
 EXIT_RUNTIME_ERROR = 1
 
 
+def configure_text_stream_utf8(stream) -> None:
+    """Keep packaged Windows diagnostics from failing on Chinese text."""
+
+    reconfigure = getattr(stream, "reconfigure", None)
+    if callable(reconfigure):
+        # A PyInstaller child started through Electron may inherit cp1252 even
+        # on a Chinese Windows installation. Driver and cleanup diagnostics
+        # contain Chinese text, so make the pipe encoding explicit before any
+        # hardware resource is opened.
+        reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def load_config(path: str) -> dict:
     """从开发目录或打包后的资源目录读取 YAML 配置。"""
     with open(resolve_app_path(path), "r", encoding="utf-8") as f:
@@ -223,6 +235,8 @@ def make_driver(cfg: dict, joint_names):
 # ----------------------------------------------------------------------
 def main(argv=None) -> int:
     """解析启动参数并建立本次运行所需资源的统一生命周期。"""
+    configure_text_stream_utf8(sys.stdout)
+    configure_text_stream_utf8(sys.stderr)
     if sys.platform == "win32":
         # 控制台切 UTF-8 并设置窗口标题, 避免中文日志乱码
         os.system("chcp 65001 >nul & title RP-Hand手势识别")
