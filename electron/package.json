@@ -1,8 +1,9 @@
 {
   "name": "rp-hand-electron",
-  "version": "0.3.0-beta.5",
-  "description": "RP-Hand gesture control desktop interface",
+  "version": "1.0.0",
+  "description": "RP-Hand Gesture desktop interface",
   "author": "RoboParty",
+  "license": "MIT",
   "private": true,
   "main": "main.cjs",
   "scripts": {
@@ -17,7 +18,8 @@
   },
   "build": {
     "appId": "com.roboparty.rphand",
-    "productName": "RP-Hand",
+    "productName": "RP-Hand Gesture",
+    "artifactName": "${productName} Setup ${version}.${ext}",
     "directories": {
       "output": "dist"
     },

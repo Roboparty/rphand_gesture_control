@@ -16,7 +16,7 @@ const ERROR_COPY = {
     guidance: '请重新连接摄像头，确认设备可用后再重试。',
   },
   RUNTIME_ERROR: {
-    title: 'RP-Hand 运行异常',
+    title: 'RP-Hand Gesture 运行异常',
     guidance: '请检查设备连接后重新启动；如果问题持续，请保留错误码。',
   },
 };
@@ -24,7 +24,7 @@ const ERROR_COPY = {
 function buildFailureView(state) {
   const errorCode = state?.errorCode || 'RUNTIME_ERROR';
   const copy = ERROR_COPY[errorCode] || ERROR_COPY.RUNTIME_ERROR;
-  const reason = state?.message || 'RP-Hand 后端未能正常运行';
+  const reason = state?.message || 'RP-Hand Gesture 后端未能正常运行';
   const detailParts = [errorCode];
   if (state?.exitCode !== undefined) detailParts.push(`退出码 ${state.exitCode}`);
 
