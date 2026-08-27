@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('rpHand', {
   sendCommand: (command) => ipcRenderer.send('rp-hand:command', command),
+  restartBackend: () => ipcRenderer.invoke('rp-hand:restart'),
+  exitApp: () => ipcRenderer.send('rp-hand:exit-app'),
   onFrame: (listener) => {
     const wrapped = (_event, frame) => listener(frame);
     ipcRenderer.on('rp-hand:frame', wrapped);

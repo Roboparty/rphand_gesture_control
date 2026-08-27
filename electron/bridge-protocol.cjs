@@ -31,6 +31,14 @@ const INPUT_CHANNELS = [
   'pinky',
   'thumb_spread',
 ];
+const VALID_BACKEND_PHASES = new Set(['config', 'driver', 'camera', 'runtime']);
+const VALID_FATAL_CODES = new Set([
+  'CONFIG_ERROR',
+  'DRIVER_CONNECT_FAILED',
+  'CAMERA_OPEN_FAILED',
+  'CAMERA_READ_FAILED',
+  'RUNTIME_ERROR',
+]);
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -72,9 +80,48 @@ function commandLine(command) {
   return `${JSON.stringify({ type: 'command', command })}\n`;
 }
 
-function parseFrameLine(line) {
+function hasOnlyKeys(value, allowedKeys) {
+  return Object.keys(value).every((key) => allowedKeys.has(key));
+}
+
+function parseBackendLine(line) {
   try {
     const payload = JSON.parse(line);
+    if (!isRecord(payload) || typeof payload.type !== 'string') return null;
+
+    if (payload.type === 'status') {
+      if (
+        !hasOnlyKeys(
+          payload,
+          new Set(['type', 'phase', 'state', 'camera_index', 'driver_type']),
+        )
+        || !VALID_BACKEND_PHASES.has(payload.phase)
+        || payload.state !== 'starting'
+        || (payload.camera_index !== undefined && !Number.isInteger(payload.camera_index))
+        || (payload.driver_type !== undefined && typeof payload.driver_type !== 'string')
+      ) {
+        return null;
+      }
+      return payload;
+    }
+
+    if (payload.type === 'ready') {
+      return hasOnlyKeys(payload, new Set(['type'])) ? payload : null;
+    }
+
+    if (payload.type === 'fatal') {
+      if (
+        !hasOnlyKeys(payload, new Set(['type', 'code', 'message', 'retryable']))
+        || !VALID_FATAL_CODES.has(payload.code)
+        || typeof payload.message !== 'string'
+        || payload.message.length === 0
+        || typeof payload.retryable !== 'boolean'
+      ) {
+        return null;
+      }
+      return payload;
+    }
+
     if (
       payload?.type !== 'frame'
       || !Number.isInteger(payload.sequence)
@@ -102,6 +149,11 @@ function parseFrameLine(line) {
   }
 }
 
+function parseFrameLine(line) {
+  const payload = parseBackendLine(line);
+  return payload?.type === 'frame' ? payload : null;
+}
+
 function resolvePythonLaunch({
   projectRoot,
   packaged,
@@ -127,4 +179,9 @@ function resolvePythonLaunch({
   };
 }
 
-module.exports = { commandLine, parseFrameLine, resolvePythonLaunch };
+module.exports = {
+  commandLine,
+  parseBackendLine,
+  parseFrameLine,
+  resolvePythonLaunch,
+};

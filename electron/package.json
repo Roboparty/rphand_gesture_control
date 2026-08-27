@@ -24,8 +24,10 @@
     "files": [
       "main.cjs",
       "preload.cjs",
+      "backend-lifecycle.cjs",
       "bridge-protocol.cjs",
       "log-forwarder.cjs",
+      "process-termination.cjs",
       "renderer/**/*"
     ],
     "extraResources": [

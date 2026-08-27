@@ -20,6 +20,16 @@
           </div>
           <p id="startup-label">Loading</p>
         </div>
+        <section id="startup-error" role="alert" aria-labelledby="startup-error-title" hidden>
+          <p class="startup-error-kicker">启动失败</p>
+          <h1 id="startup-error-title">RP-Hand 无法启动</h1>
+          <p id="startup-error-message"></p>
+          <p id="startup-error-detail"></p>
+          <div class="startup-error-actions">
+            <button id="retry-startup" type="button">重试启动</button>
+            <button id="exit-app" type="button">退出程序</button>
+          </div>
+        </section>
         <div
           id="startup-progress"
           class="startup-progress"
@@ -112,6 +122,7 @@
       </aside>
     </main>
     <script src="startup-state.cjs"></script>
+    <script src="error-state.cjs"></script>
     <script src="telemetry-state.cjs"></script>
     <script src="app.js"></script>
   </body>

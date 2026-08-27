@@ -48,6 +48,11 @@ body,
   color: #b42318;
 }
 
+#startup-screen[data-state="error"] .startup-center,
+#startup-screen[data-state="error"] .startup-progress {
+  display: none;
+}
+
 .startup-brand {
   display: block;
   width: clamp(128px, 16vw, 180px);
@@ -106,6 +111,88 @@ body,
 
 #startup-screen[data-state="error"] #startup-progress-bar {
   background: #d92d20;
+}
+
+#startup-error {
+  align-self: center;
+  justify-self: center;
+  display: grid;
+  width: min(520px, 82vw);
+  gap: 10px;
+  color: #182230;
+  text-align: left;
+}
+
+#startup-error[hidden] {
+  display: none;
+}
+
+.startup-error-kicker,
+#startup-error-title,
+#startup-error-message,
+#startup-error-detail {
+  margin: 0;
+}
+
+.startup-error-kicker {
+  color: #d92d20;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+#startup-error-title {
+  font-size: clamp(24px, 4vw, 34px);
+  line-height: 1.2;
+}
+
+#startup-error-message {
+  max-width: 48ch;
+  color: #475467;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+#startup-error-detail {
+  color: #667085;
+  font: 12px/1.5 Consolas, monospace;
+}
+
+.startup-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.startup-error-actions button {
+  min-width: 128px;
+  min-height: 44px;
+  padding: 0 20px;
+  border: 1px solid #98a2b3;
+  border-radius: 4px;
+  background: #fff;
+  color: #182230;
+  font: 700 14px/1 Arial, Helvetica, sans-serif;
+  cursor: pointer;
+}
+
+#retry-startup {
+  border-color: #1769e0;
+  background: #1769e0;
+  color: #fff;
+}
+
+.startup-error-actions button:hover,
+.startup-error-actions button:focus-visible {
+  outline: 2px solid #1769e0;
+  outline-offset: 2px;
+}
+
+.startup-error-actions button:disabled {
+  border-color: #d0d5dd;
+  background: #eaecf0;
+  color: #98a2b3;
+  cursor: wait;
 }
 
 @keyframes startup-runner-cycle {

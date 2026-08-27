@@ -4,6 +4,7 @@ const path = require('node:path');
 
 const {
   commandLine,
+  parseBackendLine,
   parseFrameLine,
   resolvePythonLaunch,
 } = require('../bridge-protocol.cjs');
@@ -36,6 +37,33 @@ test('accepts a valid frame and rejects unrelated or malformed lines', () => {
   );
   assert.equal(parseFrameLine('{"type":"status"}'), null);
   assert.equal(parseFrameLine('not-json'), null);
+});
+
+test('accepts validated lifecycle events from Python', () => {
+  assert.deepEqual(
+    parseBackendLine('{"type":"status","phase":"camera","state":"starting","camera_index":0}'),
+    {
+      type: 'status',
+      phase: 'camera',
+      state: 'starting',
+      camera_index: 0,
+    },
+  );
+  assert.deepEqual(parseBackendLine('{"type":"ready"}'), { type: 'ready' });
+  assert.deepEqual(
+    parseBackendLine('{"type":"fatal","code":"CAMERA_OPEN_FAILED","message":"camera 0","retryable":true}'),
+    {
+      type: 'fatal',
+      code: 'CAMERA_OPEN_FAILED',
+      message: 'camera 0',
+      retryable: true,
+    },
+  );
+  assert.equal(
+    parseBackendLine('{"type":"fatal","code":"UNKNOWN","message":"bad","retryable":true}'),
+    null,
+  );
+  assert.equal(parseBackendLine('{"type":"ready","extra":true}'), null);
 });
 
 test('preserves validated Python runtime state on a frame', () => {
