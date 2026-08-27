@@ -11,6 +11,11 @@ from .base_driver import BaseHandDriver
 
 
 class SimHandDriver(BaseHandDriver):
+    """实现与真实驱动相同接口的内存仿真驱动。
+
+    它不模拟动力学，只记录最近一次关节指令，适合在没有 CAN-FD
+    硬件时验证识别、映射、安全状态机和界面数据链路。
+    """
 
     def __init__(self, joint_names: List[str]):
         self._joint_names = joint_names
@@ -36,6 +41,13 @@ class SimHandDriver(BaseHandDriver):
         self._stopped = True
         print("[SimDriver] 仿真灵巧手已停止")
 
+    def recover(self) -> bool:
+        if not self._connected:
+            return False
+        self._stopped = False
+        print("[SimDriver] 仿真灵巧手已恢复控制")
+        return True
+
     def set_joint_positions(self, positions: List[float],
                             speed: Optional[List[float]] = None) -> bool:
         if not self._connected or self._stopped:
@@ -51,12 +63,6 @@ class SimHandDriver(BaseHandDriver):
 
     def get_state(self) -> Optional[dict]:
         return dict(zip(self._joint_names, self._positions))
-
-    def get_health(self) -> Optional[dict]:
-        return {
-            "alarms": {name: 0 for name in self._joint_names},
-            "currents": {name: 0 for name in self._joint_names},
-        }
 
     @property
     def is_connected(self) -> bool:

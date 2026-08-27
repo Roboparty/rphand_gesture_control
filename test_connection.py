@@ -13,6 +13,7 @@ from drivers.lhandpro_driver import LHandProDriver
 
 
 def main():
+    """以受限幅度逐轴测试真实 CAN-FD 连接、运动和位置反馈。"""
     with open("config.yaml", "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     lp = cfg["driver"]["canfd"]

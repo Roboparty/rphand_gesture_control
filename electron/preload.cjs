@@ -1,0 +1,18 @@
+// 安全预加载桥：只向渲染页开放控制命令、视频帧和进程状态三个通道。
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('rpHand', {
+  sendCommand: (command) => ipcRenderer.send('rp-hand:command', command),
+  restartBackend: () => ipcRenderer.invoke('rp-hand:restart'),
+  exitApp: () => ipcRenderer.send('rp-hand:exit-app'),
+  onFrame: (listener) => {
+    const wrapped = (_event, frame) => listener(frame);
+    ipcRenderer.on('rp-hand:frame', wrapped);
+    return () => ipcRenderer.removeListener('rp-hand:frame', wrapped);
+  },
+  onProcessState: (listener) => {
+    const wrapped = (_event, state) => listener(state);
+    ipcRenderer.on('rp-hand:process-state', wrapped);
+    return () => ipcRenderer.removeListener('rp-hand:process-state', wrapped);
+  },
+});

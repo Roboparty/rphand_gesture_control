@@ -162,6 +162,26 @@ class LHandProDriver(BaseHandDriver):
         except Exception as e:
             print(f"[LHandPro] 停止电机时异常: {e}")
 
+    def recover(self) -> bool:
+        """Clear the stop condition without homing or commanding motion."""
+
+        if (not self._connected or self._controller is None
+                or self._controller.sdk_handle is None):
+            return False
+        try:
+            sdk = self._controller.sdk_handle
+            # Recovery only restores the drive state. The watchdog owns the
+            # subsequent safe-open trajectory; homing is a separate operation.
+            sdk.set_clear_alarm(0)
+            sdk.set_enable(0, True)
+            self._stopped = False
+            print("[LHandPro] 急停锁存已解除, 等待安全回张")
+            return True
+        except Exception as e:
+            self._stopped = True
+            print(f"[LHandPro] 恢复控制失败: {e}")
+            return False
+
     # ------------------------------------------------------------------
     def set_joint_positions(self, positions: List[float],
                             speed: Optional[List[float]] = None) -> bool:
@@ -206,21 +226,6 @@ class LHandProDriver(BaseHandDriver):
             sdk = self._controller.sdk_handle
             return {f"motor_{i}": sdk.get_now_position(i)
                     for i in range(1, self._dof_active + 1)}
-        except Exception:
-            return None
-
-    def get_health(self) -> Optional[dict]:
-        """读取每个主动电机的报警码与实时电流。"""
-        if not self._connected or self._controller is None or self._controller.sdk_handle is None:
-            return None
-        try:
-            sdk = self._controller.sdk_handle
-            return {
-                "alarms": {f"motor_{i}": sdk.get_now_alarm(i)
-                           for i in range(1, self._dof_active + 1)},
-                "currents": {f"motor_{i}": sdk.get_now_current(i)
-                             for i in range(1, self._dof_active + 1)},
-            }
         except Exception:
             return None
 

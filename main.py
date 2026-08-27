@@ -16,7 +16,8 @@ import argparse
 import os
 import sys
 import time
-from collections import deque
+import traceback
+from contextlib import contextmanager, redirect_stdout
 
 import cv2
 import numpy as np
@@ -24,27 +25,192 @@ import yaml
 
 from app_paths import app_dir, resolve_app_path
 from app_runtime import RuntimeResources
-from control_safety import (
-    CommandLimiter,
-    FeedbackMonitor,
-    TrackingState,
-    TrackingWatchdog,
-)
-from gesture_recognizer import GestureRecognizer, GESTURE_NAMES_CN, FINGERS
+from control_safety import TrackingState, TrackingWatchdog
+from gesture_preset_controller import GesturePresetController
+from gesture_recognizer import GestureRecognizer, GESTURE_NAMES_CN, HandObservation
 from gesture_mapping import GestureMapper
+from hud_renderer import draw_hud
+from rock_paper_scissors import RockPaperScissorsController
+from runtime_telemetry import build_runtime_state
 from drivers.sim_driver import SimHandDriver
+from electron_bridge import (
+    KEY_MODE_GESTURE,
+    KEY_MODE_MIRROR,
+    KEY_MODE_RPS,
+    KEY_RECOVER_CONTROL,
+    KEY_TOGGLE_DETECTION,
+    ElectronBridge,
+)
 
-# 石头剪刀布: 玩家手势 -> 机械手必胜出招 (石头->布 / 布->剪刀 / 剪刀->石头)
-RPS_COUNTER = {"fist": "open_palm", "open_palm": "victory", "victory": "fist"}
-RPS_EN = {"fist": "ROCK", "open_palm": "PAPER", "victory": "SCISSORS"}
+
+# Keep the established CLI contract: any runtime failure exits with status 1.
+# Electron distinguishes the actual cause through the structured fatal code.
+EXIT_CONFIG_ERROR = 1
+EXIT_DRIVER_CONNECT_FAILED = 1
+EXIT_CAMERA_OPEN_FAILED = 1
+EXIT_CAMERA_READ_FAILED = 1
+EXIT_RUNTIME_ERROR = 1
+
+
+def configure_text_stream_utf8(stream) -> None:
+    """Keep packaged Windows diagnostics from failing on Chinese text."""
+
+    reconfigure = getattr(stream, "reconfigure", None)
+    if callable(reconfigure):
+        # A PyInstaller child started through Electron may inherit cp1252 even
+        # on a Chinese Windows installation. Driver and cleanup diagnostics
+        # contain Chinese text, so make the pipe encoding explicit before any
+        # hardware resource is opened.
+        reconfigure(encoding="utf-8", errors="backslashreplace")
 
 
 def load_config(path: str) -> dict:
+    """从开发目录或打包后的资源目录读取 YAML 配置。"""
     with open(resolve_app_path(path), "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
+def validate_config(cfg: object) -> dict:
+    """Reject incomplete YAML during the config phase, before hardware starts."""
+
+    if not isinstance(cfg, dict):
+        raise ValueError("配置根节点必须是映射")
+
+    required = {
+        "driver": ("type",),
+        "control": ("mode", "send_rate_hz", "command_hold_frames"),
+        "camera": ("index", "width", "height"),
+        "recognizer": (
+            "max_num_hands",
+            "min_detection_confidence",
+            "min_tracking_confidence",
+            "smooth_factor",
+        ),
+        "hand": ("joints",),
+    }
+    for section, keys in required.items():
+        value = cfg.get(section)
+        if not isinstance(value, dict):
+            raise ValueError(f"配置缺少 {section} 节")
+        missing = [key for key in keys if key not in value]
+        if missing:
+            raise ValueError(f"配置 {section} 缺少字段: {', '.join(missing)}")
+
+    def is_number(value: object) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    if cfg["driver"]["type"] not in {"sim", "lhandpro"}:
+        raise ValueError("配置 driver.type 必须是 sim 或 lhandpro")
+    if cfg["control"]["mode"] not in {"mirror", "gesture", "rps"}:
+        raise ValueError("配置 control.mode 无效")
+    if not is_number(cfg["control"]["send_rate_hz"]):
+        raise ValueError("配置 control.send_rate_hz 必须是数字")
+    if (
+        not isinstance(cfg["control"]["command_hold_frames"], int)
+        or isinstance(cfg["control"]["command_hold_frames"], bool)
+        or cfg["control"]["command_hold_frames"] < 1
+    ):
+        raise ValueError("配置 control.command_hold_frames 必须是正整数")
+
+    camera = cfg["camera"]
+    for key in ("index", "width", "height"):
+        if not isinstance(camera[key], int) or isinstance(camera[key], bool):
+            raise ValueError(f"配置 camera.{key} 必须是整数")
+    if camera["index"] < 0 or camera["width"] <= 0 or camera["height"] <= 0:
+        raise ValueError("配置 camera 的编号和尺寸必须有效")
+
+    recognizer = cfg["recognizer"]
+    if (
+        not isinstance(recognizer["max_num_hands"], int)
+        or isinstance(recognizer["max_num_hands"], bool)
+        or recognizer["max_num_hands"] < 1
+    ):
+        raise ValueError("配置 recognizer.max_num_hands 必须是正整数")
+    for key in (
+        "min_detection_confidence",
+        "min_tracking_confidence",
+        "smooth_factor",
+    ):
+        value = recognizer[key]
+        if not is_number(value) or not 0 <= value <= 1:
+            raise ValueError(f"配置 recognizer.{key} 必须在 0 到 1 之间")
+
+    if cfg["driver"]["type"] == "lhandpro":
+        canfd = cfg["driver"].get("canfd")
+        if not isinstance(canfd, dict) or "library_path" not in canfd:
+            raise ValueError("配置 driver.canfd 缺少 library_path")
+    if not isinstance(cfg["hand"]["joints"], list) or not cfg["hand"]["joints"]:
+        raise ValueError("配置 hand.joints 必须是非空列表")
+    for index, joint in enumerate(cfg["hand"]["joints"]):
+        if not isinstance(joint, dict):
+            raise ValueError(f"配置 hand.joints[{index}] 必须是映射")
+        if not isinstance(joint.get("name"), str) or not joint["name"]:
+            raise ValueError(f"配置 hand.joints[{index}].name 无效")
+        if joint.get("src") is not None and not isinstance(joint.get("src"), str):
+            raise ValueError(f"配置 hand.joints[{index}].src 无效")
+        joint_range = joint.get("range")
+        if (
+            not isinstance(joint_range, (list, tuple))
+            or len(joint_range) != 2
+            or not all(is_number(value) for value in joint_range)
+        ):
+            raise ValueError(f"配置 hand.joints[{index}].range 必须包含两个数字")
+    return cfg
+
+
+@contextmanager
+def electron_protocol_output(enabled: bool):
+    """Give Electron a clean JSON stream while routing all diagnostics to stderr."""
+
+    if not enabled:
+        yield sys.stdout
+        return
+
+    protocol_stdout = sys.stdout
+    try:
+        protocol_stdout.flush()
+        sys.stderr.flush()
+        stdout_fd = protocol_stdout.fileno()
+        stderr_fd = sys.stderr.fileno()
+        protocol_fd = os.dup(stdout_fd)
+        restore_fd = os.dup(stdout_fd)
+    except (AttributeError, OSError, ValueError):
+        # In-memory streams used by tests do not expose OS file descriptors.
+        # Python-level redirection is sufficient there because no native DLL
+        # can write into the synthetic stream.
+        with redirect_stdout(sys.stderr):
+            yield protocol_stdout
+        return
+
+    protocol_stream = os.fdopen(
+        protocol_fd,
+        "w",
+        encoding="utf-8",
+        buffering=1,
+        newline="\n",
+    )
+    try:
+        # Native OpenCV/MediaPipe/DLL logs bypass redirect_stdout and write to
+        # fd 1 directly. Redirect fd 1 itself, while the duplicated descriptor
+        # remains the bridge-only JSON channel.
+        os.dup2(stderr_fd, stdout_fd)
+        yield protocol_stream
+    finally:
+        try:
+            try:
+                protocol_stream.close()
+            except (BrokenPipeError, OSError):
+                pass
+            protocol_stdout.flush()
+        finally:
+            try:
+                os.dup2(restore_fd, stdout_fd)
+            finally:
+                os.close(restore_fd)
+
+
 def make_driver(cfg: dict, joint_names):
+    """根据配置创建真实 CAN-FD 驱动或无硬件仿真驱动。"""
     dtype = cfg["driver"]["type"]
     if dtype == "lhandpro":
         from drivers.lhandpro_driver import LHandProDriver
@@ -66,79 +232,11 @@ def make_driver(cfg: dict, joint_names):
     return SimHandDriver(joint_names)
 
 
-def ordered_state_positions(state: dict | None, joint_count: int):
-    if state is None:
-        return None
-    motor_keys = [f"motor_{index}" for index in range(1, joint_count + 1)]
-    if all(key in state for key in motor_keys):
-        return [state[key] for key in motor_keys]
-    return list(state.values())
-
-
-# ----------------------------------------------------------------------
-# HUD 绘制
-# ----------------------------------------------------------------------
-def draw_hud(frame, obs, positions, joint_names, mode, sending, driver_ok, pos_max=10000,
-             banner=""):
-    h, w = frame.shape[:2]
-    # 底部对战信息条
-    if banner:
-        cv2.rectangle(frame, (0, h - 50), (w, h), (20, 20, 20), -1)
-        cv2.putText(frame, banner, (16, h - 16), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.9, (0, 255, 255), 2)
-    panel_w = 320
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (w - panel_w, 0), (w, h), (30, 30, 30), -1)
-    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
-
-    x0 = w - panel_w + 16
-    y = 34
-    cv2.putText(frame, f"Mode: {mode}", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-    y += 30
-    status = "SENDING" if sending else "PAUSED (Space)"
-    color = (0, 255, 0) if (sending and driver_ok) else (0, 0, 255)
-    cv2.putText(frame, status, (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-    y += 30
-    gesture_cn = GESTURE_NAMES_CN.get(obs.gesture, obs.gesture)
-    cv2.putText(frame, f"Gesture: {obs.gesture}", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
-    y += 24
-    # 中文手势名可能因 OpenCV 字体缺字, 控制台同步打印, 画面上显示英文即可
-    cv2.putText(frame, f"({gesture_cn})", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-    y += 30
-
-    # 手指弯曲度条
-    if obs.detected:
-        for f in FINGERS:
-            v = obs.curls[f]
-            cv2.putText(frame, f, (x0, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
-            bx = x0 + 70
-            cv2.rectangle(frame, (bx, y - 8), (bx + 150, y + 6), (80, 80, 80), -1)
-            cv2.rectangle(frame, (bx, y - 8), (bx + int(150 * v), y + 6), (0, 200, 255), -1)
-            y += 22
-        # 拇指侧摆张角条
-        v = obs.thumb_spread
-        cv2.putText(frame, "th_roll", (x0, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1)
-        bx = x0 + 70
-        cv2.rectangle(frame, (bx, y - 8), (bx + 150, y + 6), (80, 80, 80), -1)
-        cv2.rectangle(frame, (bx, y - 8), (bx + int(150 * v), y + 6), (255, 160, 0), -1)
-        y += 22
-    y += 10
-
-    # 灵巧手关节位置条
-    cv2.putText(frame, "Hand joints:", (x0, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-    y += 22
-    for name, p in zip(joint_names, positions):
-        frac = min(max(p / pos_max, 0.0), 1.0)  # 按最大位置归一化显示
-        cv2.putText(frame, name[:12], (x0, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
-        bx = x0 + 110
-        cv2.rectangle(frame, (bx, y - 8), (bx + 110, y + 6), (80, 80, 80), -1)
-        cv2.rectangle(frame, (bx, y - 8), (bx + int(110 * frac), y + 6), (0, 255, 120), -1)
-        cv2.putText(frame, str(int(p)), (bx + 115, y + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
-        y += 20
-
-
 # ----------------------------------------------------------------------
 def main(argv=None) -> int:
+    """解析启动参数并建立本次运行所需资源的统一生命周期。"""
+    configure_text_stream_utf8(sys.stdout)
+    configure_text_stream_utf8(sys.stderr)
     if sys.platform == "win32":
         # 控制台切 UTF-8 并设置窗口标题, 避免中文日志乱码
         os.system("chcp 65001 >nul & title RP-Hand手势识别")
@@ -149,21 +247,70 @@ def main(argv=None) -> int:
                     help="覆盖 config 的控制模式 (rps=石头剪刀布对战)")
     ap.add_argument("--camera", type=int, default=None, help="覆盖 config 的摄像头编号")
     ap.add_argument("--duration", type=float, default=None, help="运行 N 秒后自动安全退出 (默认不限)")
+    ap.add_argument("--electron-bridge", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
 
-    cfg = load_config(args.config)
-    if args.driver:
-        cfg["driver"]["type"] = args.driver
-    if args.mode:
-        cfg["control"]["mode"] = args.mode
-    if args.camera is not None:
-        cfg["camera"]["index"] = args.camera
+    with electron_protocol_output(args.electron_bridge) as protocol_stdout:
+        bridge = (
+            ElectronBridge(sys.stdin, protocol_stdout)
+            if args.electron_bridge
+            else None
+        )
+        try:
+            try:
+                if bridge is not None:
+                    bridge.publish_status("config", state="starting")
+                cfg = load_config(args.config)
+                if not isinstance(cfg, dict):
+                    raise ValueError("配置根节点必须是映射")
+                # CLI overrides belong to configuration, so malformed section
+                # structure is reported as CONFIG_ERROR instead of RUNTIME_ERROR.
+                if args.driver:
+                    if not isinstance(cfg.get("driver"), dict):
+                        raise ValueError("配置缺少 driver 节")
+                    cfg["driver"]["type"] = args.driver
+                if args.mode:
+                    if not isinstance(cfg.get("control"), dict):
+                        raise ValueError("配置缺少 control 节")
+                    cfg["control"]["mode"] = args.mode
+                if args.camera is not None:
+                    if not isinstance(cfg.get("camera"), dict):
+                        raise ValueError("配置缺少 camera 节")
+                    cfg["camera"]["index"] = args.camera
+                cfg = validate_config(cfg)
+            except Exception as exc:
+                if bridge is None:
+                    raise
+                bridge.publish_fatal(
+                    "CONFIG_ERROR",
+                    f"无法读取配置文件 {args.config}",
+                    retryable=True,
+                )
+                print(f"配置文件读取失败: {exc}")
+                return EXIT_CONFIG_ERROR
 
-    with RuntimeResources(destroy_windows=cv2.destroyAllWindows) as resources:
-        return _run(cfg, args, resources)
+            try:
+                # 入口统一拥有运行资源；无论 _run 正常返回还是抛出异常，
+                # 离开 with 时都会按确定顺序释放驱动、摄像头和识别器。
+                with RuntimeResources(destroy_windows=cv2.destroyAllWindows) as resources:
+                    return _run(cfg, args, resources, bridge=bridge)
+            except Exception:
+                if bridge is None:
+                    raise
+                bridge.publish_fatal(
+                    "RUNTIME_ERROR",
+                    "RP-Hand 运行时发生异常",
+                    retryable=True,
+                )
+                traceback.print_exc()
+                return EXIT_RUNTIME_ERROR
+        finally:
+            if bridge is not None:
+                bridge.close()
 
 
-def _run(cfg: dict, args, resources: RuntimeResources) -> int:
+def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
+    """执行实时识别与控制循环；资源释放由调用方统一负责。"""
 
     rcfg = cfg["recognizer"]
     recognizer = GestureRecognizer(
@@ -173,14 +320,37 @@ def _run(cfg: dict, args, resources: RuntimeResources) -> int:
         smooth_factor=rcfg["smooth_factor"],
     )
     resources.recognizer = recognizer
-    mapper = GestureMapper(cfg["hand"]["joints"], cfg.get("presets", {}))
+    mapper = GestureMapper(
+        cfg["hand"]["joints"],
+        cfg.get("presets", {}),
+        cfg["hand"].get("input_calibration", {}),
+        cfg["hand"].get("pinch_assist", {}),
+    )
+    if bridge is not None:
+        bridge.publish_status(
+            "driver",
+            state="starting",
+            driver_type=cfg["driver"]["type"],
+        )
     driver = make_driver(cfg, mapper.joint_names)
     resources.driver = driver
     if not driver.connect():
         print("驱动连接失败, 可先用 --driver sim 调试手势识别部分。")
-        return 1
+        if bridge is not None:
+            bridge.publish_fatal(
+                "DRIVER_CONNECT_FAILED",
+                "灵巧手驱动连接失败",
+                retryable=True,
+            )
+        return EXIT_DRIVER_CONNECT_FAILED
 
     ccfg = cfg["camera"]
+    if bridge is not None:
+        bridge.publish_status(
+            "camera",
+            state="starting",
+            camera_index=ccfg["index"],
+        )
     # Windows 上部分摄像头用默认 MSMF 后端抓不到帧, 强制 DirectShow
     if sys.platform == "win32":
         cap = cv2.VideoCapture(ccfg["index"], cv2.CAP_DSHOW)
@@ -191,223 +361,237 @@ def _run(cfg: dict, args, resources: RuntimeResources) -> int:
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, ccfg["height"])
     if not cap.isOpened():
         print(f"无法打开摄像头 {ccfg['index']}")
-        return 1
+        if bridge is not None:
+            bridge.publish_fatal(
+                "CAMERA_OPEN_FAILED",
+                f"无法打开摄像头 {ccfg['index']}",
+                retryable=True,
+            )
+        return EXIT_CAMERA_OPEN_FAILED
+
+    if bridge is not None:
+        bridge.publish_ready()
 
     mode = cfg["control"]["mode"]
+    detection_enabled = True
     sending = True
     send_interval = 1.0 / max(cfg["control"]["send_rate_hz"], 1)
-    safety_cfg = cfg.get("safety", {})
-    tracking_cfg = safety_cfg.get("tracking", {})
-    safe_positions = [joint["range"][0] for joint in cfg["hand"]["joints"]]
+    tracking_cfg = cfg.get("safety", {}).get("tracking", {})
     watchdog = TrackingWatchdog(
-        safe_positions=safe_positions,
+        safe_positions=[joint["range"][0] for joint in cfg["hand"]["joints"]],
         grace_period_s=tracking_cfg.get("grace_period_s", 0.35),
         safe_return_duration_s=tracking_cfg.get("safe_return_duration_s", 1.2),
         lost_action=tracking_cfg.get("lost_action", "open"),
     )
-    command_cfg = safety_cfg.get("command", {})
-    limiter = CommandLimiter(
-        joint_ranges=[joint["range"] for joint in cfg["hand"]["joints"]],
-        initial_positions=safe_positions,
-        deadband=command_cfg.get("deadband", 35),
-        max_step=command_cfg.get("max_step", 400),
-        max_velocity=command_cfg.get("max_velocity", 3500),
-        max_acceleration=command_cfg.get("max_acceleration", 14000),
-        initial_time=time.monotonic(),
-    )
-    feedback_cfg = safety_cfg.get("feedback", {})
-    feedback_monitor = FeedbackMonitor(
-        max_send_failures=feedback_cfg.get("max_send_failures", 3),
-        max_feedback_failures=feedback_cfg.get("max_read_failures", 5),
-        position_error_limit=feedback_cfg.get("position_error_limit", 6000),
-        position_error_timeout_s=feedback_cfg.get("position_error_timeout_s", 2.0),
-    )
-    feedback_interval = feedback_cfg.get("interval_s", 0.2)
     hold_needed = cfg["control"]["command_hold_frames"]
-    gesture_history = deque(maxlen=hold_needed)
+    gesture_controller = GesturePresetController(hold_frames=hold_needed)
     last_sent = float("-inf")
-    last_feedback = float("-inf")
-    last_command = list(safe_positions)
-    active_fault = None
-    stop_executed = False
-    last_gesture_triggered = None
-    # 石头剪刀布状态
-    rps_cooldown = cfg["control"].get("rps_cooldown_s", 3.0)
-    rps_armed = True          # 玩家换手势/收手后才允许下一次出招
-    rps_last_used = None      # 上一局玩家出的手势
-    rps_last_round = 0.0
-    rps_round_msg = ""
+    rps_controller = RockPaperScissorsController(
+        hold_frames=hold_needed,
+        cooldown_s=cfg["control"].get("rps_cooldown_s", 3.0),
+    )
 
-    print("运行中...  q=退出  m=切换模式  空格=暂停/恢复发送  e=紧急停止")
+    print("运行中...  q=退出  m=切换模式  空格=暂停/恢复发送  e=紧急停止  r=受控恢复")
     fail_count = 0
     t_start = time.time()
-    try:
-        while True:
-            if args.duration is not None and time.time() - t_start >= args.duration:
-                print(f"已运行 {args.duration:.0f} 秒, 自动安全退出")
-                break
-            ok, frame = cap.read()
-            if not ok:
-                fail_count += 1
-                if fail_count > 30:  # 连续失败约1秒才放弃 (摄像头初始化期可能丢帧)
-                    print("持续无法读取摄像头帧, 退出")
-                    break
-                time.sleep(0.03)
-                continue
-            fail_count = 0
-            if ccfg.get("mirror", True):
-                frame = cv2.flip(frame, 1)
+    while True:
+        if args.duration is not None and time.time() - t_start >= args.duration:
+            print(f"已运行 {args.duration:.0f} 秒, 自动安全退出")
+            break
+        ok, frame = cap.read()
+        if not ok:
+            fail_count += 1
+            if fail_count > 30:  # 连续失败约1秒才放弃 (摄像头初始化期可能丢帧)
+                print("持续无法读取摄像头帧, 退出")
+                if bridge is not None:
+                    bridge.publish_fatal(
+                        "CAMERA_READ_FAILED",
+                        "持续无法读取摄像头画面",
+                        retryable=True,
+                    )
+                return EXIT_CAMERA_READ_FAILED
+            time.sleep(0.03)
+            continue
+        fail_count = 0
+        if ccfg.get("mirror", True):
+            frame = cv2.flip(frame, 1)
 
+        if detection_enabled:
             obs = recognizer.process(frame)
             recognizer.draw_landmarks(frame, obs)
+        else:
+            obs = HandObservation()
 
-            positions = None
-            if obs.detected:
-                if mode == "mirror":
-                    vals = dict(obs.curls)
-                    vals["thumb_spread"] = obs.thumb_spread
-                    positions = mapper.map_mirror(vals)
-                elif mode == "rps":
-                    # 石头剪刀布: 玩家手势稳定后, 机械手出必胜招
-                    gesture_history.append(obs.gesture)
-                    stable = (len(gesture_history) == hold_needed
-                              and len(set(gesture_history)) == 1)
-                    g = gesture_history[-1] if gesture_history else None
-                    now_t = time.time()
-                    if obs.gesture != rps_last_used:
-                        rps_armed = True  # 玩家换了手势, 允许再出招
-                    if stable and g in RPS_COUNTER and rps_armed \
-                            and now_t - rps_last_round >= rps_cooldown:
-                        counter = RPS_COUNTER[g]
-                        pose = mapper.map_preset(counter)
-                        if pose is not None:
-                            positions = pose
-                            rps_armed = False
-                            rps_last_used = g
-                            rps_last_round = now_t
-                            rps_round_msg = (f"You: {RPS_EN[g]}   Me: {RPS_EN[counter]}"
-                                             f"   ->  I WIN!")
-                            print(f"[猜拳] 你出{GESTURE_NAMES_CN.get(g, g)}, "
-                                  f"我出{GESTURE_NAMES_CN.get(counter, counter)}, 我赢了")
-                    elif stable and g in RPS_COUNTER and not rps_armed:
-                        remain = rps_cooldown - (now_t - rps_last_round)
-                        if remain > 0:
-                            rps_round_msg = f"Next round in {remain:.0f}s (change gesture)"
-                else:  # gesture 模式: 手势稳定 hold_needed 帧才触发预设动作
-                    gesture_history.append(obs.gesture)
-                    stable = (len(gesture_history) == hold_needed
-                              and len(set(gesture_history)) == 1)
-                    g = gesture_history[-1] if gesture_history else None
-                    if stable and g != last_gesture_triggered:
-                        pose = mapper.map_preset(g)
-                        if pose is not None:
-                            positions = pose
-                            last_gesture_triggered = g
-                            print(f"[手势触发] {g} -> {GESTURE_NAMES_CN.get(g, g)}")
-            elif mode == "rps":
-                # 玩家收手 -> 重新武装, 允许相同手势再来一局
-                rps_armed = True
-                gesture_history.clear()
-            elif not obs.detected:
-                gesture_history.clear()
-
-            now = time.monotonic()
-            decision = watchdog.update(
-                positions,
-                now=now,
-                tracking_detected=obs.detected,
-            )
-            if decision.should_stop and not stop_executed:
-                driver.stop()
-                stop_executed = True
-                sending = False
-
-            safety_command = (
-                positions is not None
-                or decision.state in {TrackingState.SAFE_RETURN, TrackingState.SAFE_HOLD}
-            )
-            if (decision.target is not None and safety_command and sending
-                    and driver.is_connected and now - last_sent >= send_interval):
-                limited_target = limiter.limit(decision.target, now=now)
-                success = driver.set_joint_positions(limited_target)
-                fault = feedback_monitor.note_send(success)
-                if success:
-                    watchdog.note_output(limited_target)
-                    last_command = limited_target
-                last_sent = now
-                if fault is not None and active_fault is None:
-                    active_fault = fault
-                    watchdog.force_stop()
-                    if not stop_executed:
-                        driver.stop()
-                        stop_executed = True
-                    sending = False
-                    print(f"安全故障 [{fault.code}]: {fault.message}")
-
-            if (active_fault is None and driver.is_connected
-                    and now - last_feedback >= feedback_interval):
-                state = driver.get_state()
-                health = driver.get_health()
-                fault = feedback_monitor.evaluate(
-                    target=last_command,
-                    actual=ordered_state_positions(state, mapper.num_joints),
-                    alarms=health.get("alarms") if health else None,
-                    now=now,
+        positions = None
+        display_inputs = None
+        if obs.detected:
+            vals = dict(obs.curls)
+            vals["thumb_spread"] = obs.thumb_spread
+            display_inputs = mapper.calibrate_inputs(vals)
+            if mode == "mirror":
+                positions = mapper.map_mirror(
+                    vals,
+                    pinch_strength=obs.pinch_strength,
                 )
-                last_feedback = now
-                if fault is not None:
-                    active_fault = fault
-                    watchdog.force_stop()
-                    if not stop_executed:
-                        driver.stop()
-                        stop_executed = True
-                    sending = False
-                    print(f"安全故障 [{fault.code}]: {fault.message}")
+            elif mode == "rps":
+                rps_decision = rps_controller.update(
+                    obs.gesture,
+                    detected=True,
+                    now=time.time(),
+                    map_preset=mapper.map_preset,
+                )
+                positions = rps_decision.positions
+                if rps_decision.log_message:
+                    print(rps_decision.log_message)
+            else:  # gesture 模式: 手势稳定 hold_needed 帧才触发预设动作
+                gesture_decision = gesture_controller.update(
+                    obs.gesture,
+                    detected=True,
+                    map_preset=mapper.map_preset,
+                )
+                positions = gesture_decision.positions
+                if gesture_decision.gesture is not None:
+                    gesture = gesture_decision.gesture
+                    print(
+                        f"[手势触发] {gesture} -> "
+                        f"{GESTURE_NAMES_CN.get(gesture, gesture)}"
+                    )
+        elif mode == "rps":
+            rps_controller.update(
+                None,
+                detected=False,
+                now=time.time(),
+                map_preset=mapper.map_preset,
+            )
+        elif mode == "gesture":
+            gesture_controller.update(
+                None,
+                detected=False,
+                map_preset=mapper.map_preset,
+            )
 
-            if decision.target is not None:
-                hud_positions = decision.target
-            else:
-                state = driver.get_state()
-                hud_positions = list(state.values()) if state else [0] * mapper.num_joints
+        now = time.monotonic()
+        decision = watchdog.update(
+            positions,
+            now=now,
+            tracking_detected=obs.detected,
+        )
+        if decision.should_stop:
+            driver.stop()
+            sending = False
 
-            safety_banner = (f"FAULT: {active_fault.code}" if active_fault else {
-                TrackingState.GRACE: "TRACKING LOST - HOLDING",
-                TrackingState.SAFE_RETURN: "TRACKING LOST - SAFE RETURN",
-                TrackingState.SAFE_HOLD: "SAFE POSE",
-                TrackingState.STOPPED: "EMERGENCY STOP",
-            }.get(decision.state, ""))
-            pos_max = max(max(j["range"]) for j in cfg["hand"]["joints"])
-            draw_hud(frame, obs, hud_positions, mapper.joint_names,
-                     mode, sending, driver.is_connected, pos_max,
-                     banner=safety_banner or (rps_round_msg if mode == "rps" else ""))
+        safety_command = (
+            positions is not None
+            or decision.state in {TrackingState.SAFE_RETURN, TrackingState.SAFE_HOLD}
+        )
+        output_allowed = sending or not detection_enabled
+        if (decision.target is not None and safety_command and output_allowed
+                and driver.is_connected and now - last_sent >= send_interval):
+            if driver.set_joint_positions(decision.target):
+                watchdog.note_output(decision.target)
+            last_sent = now
+
+        if decision.target is not None:
+            hud_positions = decision.target
+        else:
+            state = driver.get_state()
+            hud_positions = list(state.values()) if state else [0] * mapper.num_joints
+
+        safety_banner = {
+            TrackingState.GRACE: "TRACKING LOST - HOLDING",
+            TrackingState.SAFE_RETURN: "TRACKING LOST - SAFE RETURN",
+            TrackingState.SAFE_HOLD: "SAFE POSE",
+            TrackingState.STOPPED: "EMERGENCY STOP",
+        }.get(decision.state, "")
+        banner = safety_banner or (
+            rps_controller.banner if mode == "rps" else ""
+        )
+        pos_max = max(max(j["range"]) for j in cfg["hand"]["joints"])
+        if bridge is None:
+            draw_hud(
+                frame,
+                obs,
+                hud_positions,
+                mapper.joint_names,
+                mode,
+                sending,
+                driver.is_connected,
+                pos_max,
+                banner=banner,
+                display_inputs=display_inputs,
+            )
             cv2.imshow("RP-Hand", frame)
-
             key = cv2.waitKey(1) & 0xFF
-            if key == ord("q"):
-                break
-            elif key == ord("m"):
-                modes = ["mirror", "gesture", "rps"]
-                mode = modes[(modes.index(mode) + 1) % len(modes)]
-                gesture_history.clear()
-                last_gesture_triggered = None
-                rps_armed = True
-                rps_round_msg = ""
-                print(f"切换到 {mode} 模式")
-            elif key == ord(" "):
-                if watchdog.state is TrackingState.STOPPED:
-                    print("急停已锁定, 请排除故障后重启程序")
-                else:
-                    sending = not sending
-                    print("恢复发送" if sending else "已暂停发送 (灵巧手保持当前姿态)")
-            elif key == ord("e"):
-                if watchdog.force_stop():
-                    if not stop_executed:
-                        driver.stop()
-                        stop_executed = True
-                    sending = False
-                    print("紧急停止已触发, 需重启程序才能恢复")
-    finally:
-        resources.close()
+        else:
+            bridge.submit_frame(
+                frame,
+                now=now,
+                state=build_runtime_state(
+                    mode=mode,
+                    detection_enabled=detection_enabled,
+                    sending=sending,
+                    safety_state=decision.state.value,
+                    observation=obs,
+                    display_inputs=display_inputs,
+                    positions=hud_positions,
+                    joint_names=mapper.joint_names,
+                    position_max=pos_max,
+                    driver_connected=driver.is_connected,
+                    banner=banner,
+                ),
+            )
+            key = bridge.poll_key()
+        if key == ord("q"):
+            break
+        elif key in {KEY_MODE_MIRROR, KEY_MODE_GESTURE, KEY_MODE_RPS}:
+            mode = {
+                KEY_MODE_MIRROR: "mirror",
+                KEY_MODE_GESTURE: "gesture",
+                KEY_MODE_RPS: "rps",
+            }[key]
+            gesture_controller.reset()
+            rps_controller.reset()
+            print(f"切换到 {mode} 模式")
+        elif key == KEY_TOGGLE_DETECTION:
+            detection_enabled = not detection_enabled
+            if not detection_enabled:
+                watchdog.request_safe_return(now)
+            else:
+                watchdog.resume_tracking_policy(now)
+            gesture_controller.reset()
+            rps_controller.reset()
+            print("已开启手部识别" if detection_enabled else "已关闭手部识别")
+        elif key == ord("m"):
+            modes = ["mirror", "gesture", "rps"]
+            mode = modes[(modes.index(mode) + 1) % len(modes)]
+            gesture_controller.reset()
+            rps_controller.reset()
+            print(f"切换到 {mode} 模式")
+        elif key == ord(" "):
+            if watchdog.state is TrackingState.STOPPED:
+                print("急停已锁定, 请排除故障后重启程序")
+            else:
+                sending = not sending
+                print("恢复发送" if sending else "已暂停发送 (灵巧手保持当前姿态)")
+        elif key == ord("e"):
+            if watchdog.force_stop():
+                driver.stop()
+                sending = False
+                print("紧急停止已触发, 排除风险后可执行受控恢复")
+        elif key in {KEY_RECOVER_CONTROL, ord("r")}:
+            if watchdog.state is not TrackingState.STOPPED:
+                print("当前未处于急停状态, 无需恢复")
+            elif driver.recover():
+                # Recovery never resumes vision-driven commands directly.
+                # It first disables tracking and returns to the safe pose.
+                watchdog.recover_to_safe_return(now)
+                detection_enabled = False
+                sending = False
+                gesture_controller.reset()
+                rps_controller.reset()
+                print("控制已恢复, 正在安全回张; 请确认状态后重新开启识别与发送")
+            else:
+                print("恢复控制失败, 急停保持锁定")
     return 0
 
 

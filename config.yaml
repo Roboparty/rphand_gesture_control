@@ -17,7 +17,7 @@ recognizer:
 #   gesture - 手势指令模式: 识别到特定手势后, 灵巧手执行对应的预设动作
 #   rps     - 石头剪刀布对战: 识别你出石头/剪刀/布, 机械手出必胜招
 control:
-  mode: rps
+  mode: mirror
   send_rate_hz: 30        # 指令发送频率上限
   command_hold_frames: 8  # gesture/rps模式下, 手势需稳定保持的帧数才触发(防抖)
   rps_cooldown_s: 3.0     # rps模式: 每局之间的冷却秒数
@@ -27,17 +27,6 @@ safety:
     grace_period_s: 0.35          # 短暂遮挡时保持最后姿态的宽限时间
     lost_action: open             # open=平滑张开 / stop=超过宽限后停机
     safe_return_duration_s: 1.2   # 平滑回到各关节 range[0] 的时间
-  command:
-    deadband: 35                  # 小于此位置差的抖动不下发
-    max_step: 400                 # 单次命令允许的最大位置变化
-    max_velocity: 3500            # 每秒最大位置变化
-    max_acceleration: 14000       # 每秒速度变化上限
-  feedback:
-    interval_s: 0.2               # 状态与报警读取周期
-    max_send_failures: 3          # 连续下发失败达到此值后停机
-    max_read_failures: 5          # 连续位置反馈失败达到此值后停机
-    position_error_limit: 6000    # 目标与实际位置允许的最大误差
-    position_error_timeout_s: 2.0 # 误差持续超限多久后停机
 
 driver:
   type: sim               # sim = 仿真(无硬件调试用) / lhandpro = 真实灵巧手(CANFD)
@@ -57,6 +46,24 @@ driver:
     max_current: 1000     # 最大电流 (厂商示例默认 1000, 过大会夹疼/过小没力)
 
 hand:
+  # 2026-08-26 真机端点采样。MediaPipe 在完全伸直时仍输出约 19%~26%；
+  # 拇指和食指的实测完全闭合值分别约为 0.446 与 0.672。
+  input_calibration:
+    thumb:        { open: 0.2057, closed: 0.446 }
+    thumb_spread: { open: 0.1617 }
+    index:        { open: 0.2576, closed: 0.672 }
+    middle:       { open: 0.2607 }
+    ring:         { open: 0.1893 }
+    pinky:        { open: 0.2296 }
+
+  # 仅在拇指与食指靠近时渐进增强相关通道，避免触碰其他手指的连续映射。
+  pinch_assist:
+    enabled: true
+    targets:
+      thumb: 0.80
+      thumb_spread: 0.60
+      index: 0.85
+
   # 关节通道定义 (默认按 6 主动自由度型号, 与厂商示例一致)。
   # 位置范围 0~10000: 0=张开, 10000=完全弯曲 (与厂商示例 main.py 一致)。
   # 若实际方向相反, 把 range 两个数对调即可, 如 [10000, 0]。

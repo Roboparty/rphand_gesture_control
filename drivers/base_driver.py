@@ -27,6 +27,11 @@ class BaseHandDriver(ABC):
         ...
 
     @abstractmethod
+    def recover(self) -> bool:
+        """解除驱动急停锁存；不执行回零或下发位置。"""
+        ...
+
+    @abstractmethod
     def set_joint_positions(self, positions: List[float],
                             speed: Optional[List[float]] = None) -> bool:
         """下发各关节目标位置。
@@ -37,10 +42,6 @@ class BaseHandDriver(ABC):
 
     def get_state(self) -> Optional[dict]:
         """读取灵巧手当前状态(温度/电流/位置等), 不支持则返回 None。"""
-        return None
-
-    def get_health(self) -> Optional[dict]:
-        """读取报警、电流等健康状态, 不支持则返回 None。"""
         return None
 
     @property

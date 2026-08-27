@@ -12,6 +12,7 @@ class FakeObservation:
         self.detected = detected
         self.curls = {"thumb": 0.8, "index": 0.4}
         self.thumb_spread = 0.0
+        self.pinch_strength = 0.75
         self.gesture = "unknown"
 
 
@@ -35,7 +36,14 @@ class TwoJointMapper:
     joint_names = ["joint_1", "joint_2"]
     num_joints = 2
 
-    def map_mirror(self, _values):
+    def __init__(self):
+        self.pinch_strengths = []
+
+    def calibrate_inputs(self, values):
+        return dict(values)
+
+    def map_mirror(self, _values, pinch_strength=0.0):
+        self.pinch_strengths.append(pinch_strength)
         return [8000.0, 4000.0]
 
     def map_preset(self, _gesture):
@@ -43,11 +51,10 @@ class TwoJointMapper:
 
 
 class RecordingDriver:
-    def __init__(self, *, send_success: bool = True):
+    def __init__(self):
         self.commands: list[list[float]] = []
         self.stop_calls = 0
         self._connected = False
-        self._send_success = send_success
 
     def connect(self) -> bool:
         self._connected = True
@@ -61,14 +68,11 @@ class RecordingDriver:
 
     def set_joint_positions(self, positions, speed=None) -> bool:
         self.commands.append(list(positions))
-        return self._send_success
+        return True
 
     def get_state(self):
         positions = self.commands[-1] if self.commands else [0.0, 0.0]
         return dict(zip(TwoJointMapper.joint_names, positions))
-
-    def get_health(self):
-        return {"alarms": [0, 0], "currents": [0, 0]}
 
     @property
     def is_connected(self) -> bool:
@@ -103,28 +107,16 @@ def test_main_sends_safe_return_commands_when_tracking_is_lost(monkeypatch):
             "grace_period_s": 0.3,
             "lost_action": "open",
             "safe_return_duration_s": 1.0,
-        },
-        "command": {
-            "deadband": 0,
-            "max_step": 20000,
-            "max_velocity": 20000,
-            "max_acceleration": 20000,
-        },
-        "feedback": {
-            "interval_s": 0.1,
-            "max_send_failures": 2,
-            "max_read_failures": 2,
-            "position_error_limit": 10000,
-            "position_error_timeout_s": 1.0,
-        },
+        }
     }
     driver = RecordingDriver()
+    mapper = TwoJointMapper()
     keys = iter([0, 0, ord("q")])
-    monotonic_times = iter([0.0, 1.0, 1.8, 2.3])
+    monotonic_times = iter([0.0, 0.8, 1.3])
 
     monkeypatch.setattr(app, "load_config", lambda _path: config)
     monkeypatch.setattr(app, "GestureRecognizer", lambda **_kwargs: SequenceRecognizer())
-    monkeypatch.setattr(app, "GestureMapper", lambda *_args, **_kwargs: TwoJointMapper())
+    monkeypatch.setattr(app, "GestureMapper", lambda *_args, **_kwargs: mapper)
     monkeypatch.setattr(app, "make_driver", lambda _cfg, _names: driver)
     monkeypatch.setattr(app.cv2, "VideoCapture", lambda *_args: ThreeFrameCamera())
     monkeypatch.setattr(app.cv2, "waitKey", lambda _delay: next(keys))
@@ -142,55 +134,4 @@ def test_main_sends_safe_return_commands_when_tracking_is_lost(monkeypatch):
         [4000.0, 2000.0],
         [0.0, 0.0],
     ]
-
-
-def test_main_stops_after_repeated_command_failures(monkeypatch):
-    config = deepcopy(app.load_config("config.yaml"))
-    config["camera"]["mirror"] = False
-    config["control"]["mode"] = "mirror"
-    config["control"]["send_rate_hz"] = 1000
-    config["hand"]["joints"] = [
-        {"name": "joint_1", "src": "thumb", "range": [0, 10000]},
-        {"name": "joint_2", "src": "index", "range": [0, 10000]},
-    ]
-    config["safety"] = {
-        "tracking": {
-            "grace_period_s": 0.3,
-            "lost_action": "open",
-            "safe_return_duration_s": 1.0,
-        },
-        "command": {
-            "deadband": 0,
-            "max_step": 20000,
-            "max_velocity": 20000,
-            "max_acceleration": 20000,
-        },
-        "feedback": {
-            "interval_s": 0.1,
-            "max_send_failures": 2,
-            "max_read_failures": 2,
-            "position_error_limit": 10000,
-            "position_error_timeout_s": 1.0,
-        },
-    }
-    driver = RecordingDriver(send_success=False)
-    keys = iter([0, 0, ord("q")])
-    monotonic_times = iter([0.0, 1.0, 2.0, 3.0])
-
-    monkeypatch.setattr(app, "load_config", lambda _path: config)
-    monkeypatch.setattr(app, "GestureRecognizer", lambda **_kwargs: SequenceRecognizer())
-    monkeypatch.setattr(app, "GestureMapper", lambda *_args, **_kwargs: TwoJointMapper())
-    monkeypatch.setattr(app, "make_driver", lambda _cfg, _names: driver)
-    monkeypatch.setattr(app.cv2, "VideoCapture", lambda *_args: ThreeFrameCamera())
-    monkeypatch.setattr(app.cv2, "waitKey", lambda _delay: next(keys))
-    monkeypatch.setattr(app.cv2, "imshow", lambda *_args: None)
-    monkeypatch.setattr(app.cv2, "destroyAllWindows", lambda: None)
-    monkeypatch.setattr(app, "draw_hud", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(app.time, "monotonic", lambda: next(monotonic_times))
-    monkeypatch.setattr(app.os, "system", lambda _command: 0)
-
-    result = app.main(["--driver", "sim"])
-
-    assert result == 0
-    assert len(driver.commands) == 2
-    assert driver.stop_calls == 1
+    assert mapper.pinch_strengths == [0.75]

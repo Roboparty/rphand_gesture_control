@@ -18,6 +18,7 @@ from gesture_recognizer import GestureRecognizer
 
 
 def main() -> int:
+    """在单张图片上运行识别器，并可保存带关键点的诊断图。"""
     parser = argparse.ArgumentParser(description="用单张图片测试手势识别和世界坐标路径")
     parser.add_argument("image", help="输入图片路径")
     parser.add_argument("--output", help="可选：保存绘制关键点后的结果图片")
