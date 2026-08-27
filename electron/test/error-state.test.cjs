@@ -24,7 +24,7 @@ test('turns a camera failure into actionable Chinese copy', () => {
 test('falls back to a safe generic runtime failure message', () => {
   const view = buildFailureView({ status: 'failed', retryable: false });
 
-  assert.equal(view.title, 'RP-Hand 运行异常');
+  assert.equal(view.title, 'RP-Hand Gesture 运行异常');
   assert.equal(view.retryable, false);
   assert.match(view.message, /重新启动/);
 });

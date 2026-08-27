@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>RP-Hand</title>
+    <title>RP-Hand Gesture</title>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <main id="stage" aria-label="RP-Hand 摄像头手势控制">
-      <section id="startup-screen" aria-label="RP-Hand 正在启动" aria-live="polite">
+    <main id="stage" aria-label="RP-Hand Gesture 摄像头手势控制">
+      <section id="startup-screen" aria-label="RP-Hand Gesture 正在启动" aria-live="polite">
         <img
           class="startup-brand"
           src="assets/roboparty.svg"
@@ -22,7 +22,7 @@
         </div>
         <section id="startup-error" role="alert" aria-labelledby="startup-error-title" hidden>
           <p class="startup-error-kicker">启动失败</p>
-          <h1 id="startup-error-title">RP-Hand 无法启动</h1>
+          <h1 id="startup-error-title">RP-Hand Gesture 无法启动</h1>
           <p id="startup-error-message"></p>
           <p id="startup-error-detail"></p>
           <div class="startup-error-actions">
@@ -45,7 +45,7 @@
         <p id="safety-banner" role="status" hidden></p>
         <p id="process-state" role="status" aria-live="polite" hidden></p>
       </section>
-      <aside id="runtime-sidebar" aria-label="RP-Hand 运行数据与控制">
+      <aside id="runtime-sidebar" aria-label="RP-Hand Gesture 运行数据与控制">
         <section id="telemetry-panel" aria-label="实时运行数据">
           <p id="mode-state" class="telemetry-mode">Mode: mirror</p>
           <p id="sending-state" class="telemetry-status" data-tone="success">SENDING</p>

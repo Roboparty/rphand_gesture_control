@@ -54,7 +54,7 @@ test('classifies an unexpected exit without a fatal event as a runtime error', (
   assert.deepEqual(lifecycle.exited({ code: 7, signal: null }), {
     status: 'failed',
     errorCode: 'RUNTIME_ERROR',
-    message: 'RP-Hand 后端意外退出',
+    message: 'RP-Hand Gesture 后端意外退出',
     retryable: true,
     pendingExit: false,
     exitCode: 7,

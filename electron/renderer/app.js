@@ -266,7 +266,7 @@ async function retryStartup() {
   // Restarting the backend can reconnect and initialize the physical hand.
   // Require a deliberate user action instead of silently auto-retrying.
   const confirmed = window.confirm(
-    '请确认摄像头已连接，并确保灵巧手周围无障碍物。是否重新启动 RP-Hand？',
+    '请确认摄像头已连接，并确保灵巧手周围无障碍物。是否重新启动 RP-Hand Gesture？',
   );
   if (!confirmed) return;
 

@@ -93,7 +93,7 @@ function startPython() {
     const state = lifecycle.accept({
       type: 'fatal',
       code: 'RUNTIME_ERROR',
-      message: '与 RP-Hand 后端的控制通道已断开',
+      message: '与 RP-Hand Gesture 后端的控制通道已断开',
       retryable: true,
     });
     if (state) sendProcessState(state);
@@ -156,10 +156,10 @@ function stopPython() {
       if (pythonProcess !== child) return;
       if (error) {
         forceKillTimer = null;
-        process.stderr.write(`无法安全终止 RP-Hand 后端: ${error.message}\n`);
+        process.stderr.write(`无法安全终止 RP-Hand Gesture 后端: ${error.message}\n`);
         dialog.showErrorBox(
-          '无法安全退出 RP-Hand',
-          '后端进程仍可能连接灵巧手。请断开设备后重试退出，或在任务管理器中结束 RP-Hand 后端。',
+          '无法安全退出 RP-Hand Gesture',
+          '后端进程仍可能连接灵巧手。请断开设备后重试退出，或在任务管理器中结束 RP-Hand Gesture 后端。',
         );
         return;
       }

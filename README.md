@@ -1,133 +1,212 @@
-# 摄像头手势识别 → LHandPro 灵巧手控制 (Windows x64 / CANFD)
+# RP-Hand Gesture
 
-通过普通 RGB 摄像头识别你的手势，实时驱动 LHandPro 灵巧手。
-底层直接集成厂商 SDK（`LHandProLib.dll` + `HCanbus.dll` CANFD 驱动），无需再手写 C 绑定。
+RP-Hand Gesture 是一个面向 Windows x64 的实时灵巧手控制程序。它通过普通 RGB 摄像头和
+MediaPipe 获取人手关键点，将手指动作连续映射到 LHandPro 灵巧手，并通过 USB-CANFD 下发控制指令。
 
-**已在真机上验证通过**（2026-07-25）：CANFD 连接、回零、逐轴运动、位置反馈、
-摄像头手势识别全流程均正常（总自由度 11，主动自由度 6）。
+当前稳定版本为 **v1.0.0**。该版本以“先能稳定使用”为目标，Electron GUI 只开放连续映射模式；
+手势触发和猜拳实验代码仍保留在源码中，但暂不显示在正式界面。
 
-## 功能
+## 主要功能
 
-- **mirror 模式（连续映射）**：你的手指弯多少，灵巧手对应关节就弯多少，30 Hz 实时跟随。
-- **gesture 模式（手势指令）**：识别到握拳 / 张开 / 捏合 / 指点 / 剪刀手 / 点赞，执行预设动作。
-- 已内置厂商 Python SDK（`vendor/`），驱动开箱即用。
-- 自带 `sim` 仿真驱动，不接手也能调试手势识别。
-- 画面右侧 HUD 实时显示：手势标签、各手指弯曲度、灵巧手各关节指令位置。
+- 普通摄像头实时识别人手，无需深度相机。
+- 连续映射拇指、食指、中指、无名指和小指动作。
+- 浅色 Electron 桌面界面，显示识别结果、输入比例和关节指令。
+- “手部识别”和“指令发送”使用两个独立开关。
+- 支持软件急停、确认恢复和丢手安全回张。
+- 内置 LHandPro Python SDK、CAN-FD 用户态库和 Python 运行环境。
+- 提供 `sim` 仿真驱动，可在不连接灵巧手时调试摄像头与界面。
 
-## 环境准备（Windows x64）
+本项目已在真实 LHandPro 灵巧手与 CAN-FD 适配器上完成连接、回零、连续映射、急停及恢复测试。
 
-1. USB-CANFD 适配器连接电脑与灵巧手，灵巧手上电。
-2. 安装依赖：
-   ```bash
-   pip install -r requirements.txt
-   ```
-   注意：`mediapipe` 请用 **0.10.14**（新版 0.10.30+ 移除了 `mp.solutions` 接口）。
-   ```bash
-   pip install mediapipe==0.10.14
-   ```
+## 安装 v1.0.0
 
-## 运行
+构建后的安装包名称为：
 
-```bash
-# 1. 硬件连通性测试（连接 → 使能 → 回零 → 逐轴半弯曲 → 张开）
-python test_connection.py
-
-# 2. 无硬件调试手势识别（仿真驱动）
-python main.py --driver sim
-
-# 3. 手势控制真实灵巧手
-python main.py --driver lhandpro
-
-# 手势指令模式
-python main.py --driver lhandpro --mode gesture
+```text
+RP-Hand Gesture Setup 1.0.0.exe
 ```
 
-按键：`q` 退出（请用 q 退出，会正常停止电机并断开），`m` 切换模式，`空格` 暂停/恢复发送（安全开关）。
+安装后的应用、开始菜单快捷方式和主程序名称均为 **RP-Hand Gesture**。普通使用者不需要单独安装
+Python、Node.js 或 Electron。
 
-连接流程：扫描 CANFD 适配器（`device_index` 可指定）→ 使能电机 → 回零（约 5 秒）→ 开始跟随。
-**回零和动作前请确保手周围没有遮挡物。**
+### 运行条件
 
-## 手指角度采样（不连接灵巧手）
+- Windows 10 或 Windows 11，64 位。
+- 可正常使用的 RGB 摄像头。
+- LHandPro 灵巧手、电源及兼容的 USB-CANFD 适配器。
+- 当前验证适配器使用 Windows 内置 WinUSB；其他型号如无法识别，请安装适配器厂商提供的驱动。
 
-调整手指几何映射前，先采集真实张手和握拳的角度范围：
+安装包目前未进行商业代码签名，Windows SmartScreen 可能显示未知发布者提示。请仅从本仓库的
+GitHub Releases 或 RoboParty 官方渠道获取安装包。
 
-```bash
-python capture_geometry_ranges.py --camera 0
-```
+### 首次启动
 
-窗口中按 `O` 采集完全张开的手掌，按 `F` 采集完全握拳，按 `Q` 退出。两种姿态都采集完成后，
-报告会写入 `diagnostics/hand_geometry_ranges.json`。这个程序不会加载驱动、连接 CAN-FD 或发送关节指令。
+1. 确认灵巧手周围没有障碍物，然后连接 CAN-FD 并给灵巧手上电。
+2. 连接摄像头并启动 RP-Hand Gesture。
+3. 程序会依次加载配置、连接驱动、打开摄像头并完成灵巧手初始化。
+4. 等待画面与右侧状态栏出现后，再开始做手势映射测试。
 
-## Electron 窗口
+> 软件急停不能替代硬件急停、机械限位或人工安全监护。真机运行时请始终为灵巧手保留安全空间。
 
-Electron 版本完整显示原 OpenCV 摄像头画面，并使用不透明的浅色右侧数据栏。界面提供手部识别
-开关、`mirror / gesture / rps` 模式选择和急停按钮。关闭手部识别后摄像头画面仍会刷新，但会跳过
-MediaPipe 识别，并沿用丢手看门狗让灵巧手安全回到张开位置。原有 `Q`、`M`、`空格`、`E`
-快捷键保持不变；点击急停后会锁定，排除故障并重启程序后才能恢复。
+## GUI 控制
 
-开发运行：
+| 控件 | 说明 |
+|---|---|
+| 手部识别 | 开启或关闭摄像头画面中的 MediaPipe 手部识别；关闭后摄像头仍保持预览。 |
+| 指令发送 | 单独暂停或恢复向灵巧手发送关节指令，不影响手部识别。 |
+| 控制模式 | v1.0.0 正式界面仅开放“连续映射”。 |
+| 紧急停止 | 立即停止电机并锁存急停状态。 |
+| 恢复控制 | 仅在急停已生效时可用；确认周围安全后重新初始化控制并安全回张。 |
 
-```bash
+快捷键：
+
+- `Space`：暂停或恢复指令发送。
+- `E`：紧急停止。
+- `R`：执行受控恢复。
+- `Q`：安全退出。
+
+## 从源码运行
+
+### 开发环境
+
+- Python 3.12 x64。
+- Node.js 与 npm。
+- MediaPipe 0.10.14（项目仍使用 `mp.solutions` 接口）。
+
+```powershell
+git clone git@github.com:Roboparty/rphand_gesture_control.git
+cd rphand_gesture_control
+
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
 cd electron
 npm install
+```
+
+### 启动 Electron GUI
+
+Electron 默认连接真实灵巧手：
+
+```powershell
+cd electron
 npm start
 ```
 
-生成 Windows 安装程序：
+不连接硬件时，可使用仿真驱动：
 
-```bash
+```powershell
+$env:RP_HAND_DRIVER = "sim"
+npm start
+```
+
+### 命令行运行
+
+```powershell
+# 仿真驱动
+.\.venv\Scripts\python.exe main.py --driver sim
+
+# 真实 LHandPro 灵巧手
+.\.venv\Scripts\python.exe main.py --driver lhandpro
+
+# CAN-FD 硬件连通性测试
+.\.venv\Scripts\python.exe test_connection.py
+```
+
+命令行/TUI 默认读取 `config.yaml`，其驱动默认值保持为 `sim`，避免开发时意外连接真实硬件。
+
+## 构建 Windows 安装包
+
+```powershell
 cd electron
 npm run dist:win
 ```
 
-Electron 安装包默认以 `lhandpro` 启动并连接真实灵巧手；运行前请确认 CAN-FD、急停和机械限位
-均已就绪。命令行/TUI 仍沿用 `config.yaml` 中的 `driver.type: sim` 安全默认值。Electron 开发调试
-如需使用仿真驱动，可先设置环境变量 `RP_HAND_DRIVER=sim` 再执行 `npm start`。
+该命令会先运行 Electron 测试，再使用 PyInstaller 构建 Python 后端，最后通过 electron-builder 生成：
 
-## 配置说明（config.yaml）
+```text
+electron/dist/RP-Hand Gesture Setup 1.0.0.exe
+```
+
+内部 Python 后端仍使用 `resources/RP-Hand/RP-Hand.exe`，这是 Electron 与 PyInstaller 之间的内部路径，
+不会改变安装后向用户显示的 RP-Hand Gesture 名称。
+
+## 测试
+
+```powershell
+# Python
+.\.venv\Scripts\python.exe -m pytest -q
+
+# Electron
+cd electron
+npm test
+```
+
+使用真实硬件测试前，建议先运行仿真后端冒烟测试，并确认摄像头、急停和恢复流程均正常。
+
+## 手指角度采样
+
+调整几何映射前，可以在不连接灵巧手的情况下采集真实张手与握拳范围：
+
+```powershell
+.\.venv\Scripts\python.exe capture_geometry_ranges.py --camera 0
+```
+
+窗口中按 `O` 采集完全张开的手掌，按 `F` 采集完全握拳，按 `Q` 退出。报告会写入
+`diagnostics/hand_geometry_ranges.json`，该工具不会加载 CAN-FD 驱动或发送关节指令。
+
+## 配置说明
+
+主要配置位于 `config.yaml`：
 
 | 配置项 | 说明 |
 |---|---|
-| `driver.canfd.library_path` | `LHandProLib.dll` 路径，默认指向工作区解压的 SDK |
-| `driver.canfd.node_id` | CANFD 节点 ID（默认 1，需与手的配置一致） |
-| `driver.canfd.device_index` | 适配器序号，`null`=自动选第一个 |
-| `driver.canfd.nom_baudrate` / `dat_baudrate` | 仲裁域 1 Mbps / 数据域 5 Mbps（厂商默认） |
-| `driver.canfd.velocity` / `max_current` | 运动速度 / 最大电流（厂商默认 20000 / 1000） |
-| `camera.index` | 摄像头编号（本机 0/1 均可用，已强制 DirectShow 后端） |
-| `hand.input_calibration` | 真机张开端校正；`open` 对应完全张手时 MediaPipe 的残余输入，校正后输出为 0 |
-| `hand.joints` | 关节映射：0=张开、10000=完全弯曲；方向反了就把 range 对调成 `[10000, 0]` |
-| `presets` | gesture 模式下各手势的预设关节位置 |
-| `recognizer.smooth_factor` | 手势防抖平滑系数 |
+| `driver.type` | 命令行默认驱动，建议开发环境保持 `sim`。 |
+| `driver.canfd.library_path` | `LHandProLib.dll` 路径。 |
+| `driver.canfd.node_id` | CAN-FD 节点 ID，必须与灵巧手配置一致。 |
+| `driver.canfd.device_index` | 适配器序号，`null` 表示自动选择第一个。 |
+| `driver.canfd.nom_baudrate` / `dat_baudrate` | CAN-FD 仲裁域与数据域波特率。 |
+| `camera.index` | 摄像头编号；无法打开时可尝试在 0 和 1 之间切换。 |
+| `hand.input_calibration` | 完全张手时 MediaPipe 残余输入的校正值。 |
+| `hand.joints` | 输入比例到灵巧手关节位置的映射范围。 |
+| `recognizer.smooth_factor` | 手指输入的平滑系数。 |
+| `control.send_rate_hz` | 关节指令发送频率。 |
 
 ## 项目结构
 
-```
-gesture_hand_control/
-├── main.py                  # 主程序：采集 → 识别 → 映射 → 下发 → HUD
-├── electron_bridge.py       # Electron 与 Python 的非阻塞帧/命令桥接
-├── electron/                # Electron 窗口、测试和 Windows 打包配置
-├── test_connection.py       # CANFD 硬件连通性冒烟测试
-├── capture_geometry_ranges.py # 摄像头角度采样，不连接灵巧手
-├── geometry_diagnostics.py  # 原始 PIP/DIP/旧版角度测量与统计
-├── gesture_recognizer.py    # MediaPipe 21 点检测、手指弯曲度、手势分类
-├── gesture_mapping.py       # 弯曲度/手势 → 灵巧手关节位置
-├── config.yaml              # 全部可调参数
+```text
+.
+├── main.py                         # Python 主循环与运行编排
+├── app_runtime.py                  # 摄像头、驱动等资源生命周期
+├── control_safety.py               # 丢手看门狗、急停和恢复状态
+├── gesture_recognizer.py           # MediaPipe 检测与手指输入计算
+├── gesture_mapping.py              # 手指输入到灵巧手关节的映射
+├── runtime_telemetry.py            # GUI/TUI 共用的运行状态
+├── electron_bridge.py              # Electron 与 Python 行协议
+├── electron/                       # Electron GUI、测试与打包配置
 ├── drivers/
-│   ├── base_driver.py       # 驱动抽象接口
-│   ├── sim_driver.py        # 仿真驱动（无硬件调试）
-│   └── lhandpro_driver.py   # LHandPro CANFD 驱动（封装厂商 SDK）
-├── vendor/                  # 厂商 SDK Python 封装（从 CANFD_python 示例拷贝）
-│   ├── canfd_lib.py         # CANFD 通信库
-│   ├── lib/HCanbus.dll      # Windows CANFD 底层驱动
-│   └── lhandprolib_python_sdk/
-└── requirements.txt
+│   ├── base_driver.py              # 驱动接口
+│   ├── sim_driver.py               # 无硬件仿真驱动
+│   └── lhandpro_driver.py          # LHandPro CAN-FD 驱动
+├── vendor/                         # 厂商 SDK 与 CAN-FD 用户态库
+├── tests/                          # Python 测试
+├── docs/                           # 架构、计划与排障文档
+└── config.yaml                     # 运行和映射配置
 ```
 
 ## 常见问题
 
-- **"No CANFD device found"**：检查 USB-CANFD 适配器连接与驱动安装。
-- **连上但手不动**：检查 `node_id` 和波特率是否与手的配置一致。
-- **摄像头打不开 / 读不到帧**：改 `camera.index`（0/1 切换试试）；程序已默认 DirectShow 后端。
-- **`module 'mediapipe' has no attribute 'solutions'`**：mediapipe 版本太新，`pip install mediapipe==0.10.14`。
-- **弯曲方向相反**：把对应关节 `range: [0, 10000]` 改成 `[10000, 0]`。
-- **手势抖动**：调大 `recognizer.smooth_factor`；指令太密可调低 `control.send_rate_hz`。
+- **No CANFD device found**：检查适配器、电源、USB 连接和设备驱动。
+- **连接成功但灵巧手不动**：确认“指令发送”已开启，并检查 `node_id` 与波特率。
+- **急停后无法操作**：排除故障并确认周围安全，再点击“恢复控制”或按 `R`。
+- **摄像头打不开**：关闭占用摄像头的软件，检查 Windows 摄像头权限，或修改 `camera.index`。
+- **MediaPipe 没有 `solutions`**：安装 `mediapipe==0.10.14`。
+- **手指方向相反**：检查对应关节映射范围，而不是直接提高速度或电流限制。
+- **SmartScreen 提示未知发布者**：当前安装包尚未代码签名，请核对下载来源和 SHA-256。
+
+## License
+
+项目自有源代码以 [MIT License](LICENSE) 开源。
+
+`vendor/` 中的厂商 SDK、动态库以及其他第三方组件不因此被重新授权，仍分别遵循其原始许可条款。
