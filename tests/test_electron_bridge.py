@@ -81,3 +81,34 @@ def test_bridge_includes_runtime_state_with_the_frame():
 
     message = json.loads(output.getvalue().strip())
     assert message["state"] == state
+
+
+def test_bridge_publishes_structured_lifecycle_events():
+    output = io.StringIO()
+    bridge = ElectronBridge(io.StringIO(""), output)
+
+    bridge.publish_status("camera", state="starting", camera_index=0)
+    bridge.publish_ready()
+    bridge.publish_fatal(
+        "CAMERA_OPEN_FAILED",
+        "无法打开摄像头 0",
+        retryable=True,
+    )
+    bridge.close()
+
+    messages = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert messages == [
+        {
+            "type": "status",
+            "phase": "camera",
+            "state": "starting",
+            "camera_index": 0,
+        },
+        {"type": "ready"},
+        {
+            "type": "fatal",
+            "code": "CAMERA_OPEN_FAILED",
+            "message": "无法打开摄像头 0",
+            "retryable": True,
+        },
+    ]

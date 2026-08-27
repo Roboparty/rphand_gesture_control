@@ -16,7 +16,8 @@ import argparse
 import os
 import sys
 import time
-from contextlib import nullcontext, redirect_stdout
+import traceback
+from contextlib import contextmanager, redirect_stdout
 
 import cv2
 import numpy as np
@@ -41,10 +42,159 @@ from electron_bridge import (
     ElectronBridge,
 )
 
+
+# Keep the established CLI contract: any runtime failure exits with status 1.
+# Electron distinguishes the actual cause through the structured fatal code.
+EXIT_CONFIG_ERROR = 1
+EXIT_DRIVER_CONNECT_FAILED = 1
+EXIT_CAMERA_OPEN_FAILED = 1
+EXIT_CAMERA_READ_FAILED = 1
+EXIT_RUNTIME_ERROR = 1
+
+
 def load_config(path: str) -> dict:
     """从开发目录或打包后的资源目录读取 YAML 配置。"""
     with open(resolve_app_path(path), "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def validate_config(cfg: object) -> dict:
+    """Reject incomplete YAML during the config phase, before hardware starts."""
+
+    if not isinstance(cfg, dict):
+        raise ValueError("配置根节点必须是映射")
+
+    required = {
+        "driver": ("type",),
+        "control": ("mode", "send_rate_hz", "command_hold_frames"),
+        "camera": ("index", "width", "height"),
+        "recognizer": (
+            "max_num_hands",
+            "min_detection_confidence",
+            "min_tracking_confidence",
+            "smooth_factor",
+        ),
+        "hand": ("joints",),
+    }
+    for section, keys in required.items():
+        value = cfg.get(section)
+        if not isinstance(value, dict):
+            raise ValueError(f"配置缺少 {section} 节")
+        missing = [key for key in keys if key not in value]
+        if missing:
+            raise ValueError(f"配置 {section} 缺少字段: {', '.join(missing)}")
+
+    def is_number(value: object) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    if cfg["driver"]["type"] not in {"sim", "lhandpro"}:
+        raise ValueError("配置 driver.type 必须是 sim 或 lhandpro")
+    if cfg["control"]["mode"] not in {"mirror", "gesture", "rps"}:
+        raise ValueError("配置 control.mode 无效")
+    if not is_number(cfg["control"]["send_rate_hz"]):
+        raise ValueError("配置 control.send_rate_hz 必须是数字")
+    if (
+        not isinstance(cfg["control"]["command_hold_frames"], int)
+        or isinstance(cfg["control"]["command_hold_frames"], bool)
+        or cfg["control"]["command_hold_frames"] < 1
+    ):
+        raise ValueError("配置 control.command_hold_frames 必须是正整数")
+
+    camera = cfg["camera"]
+    for key in ("index", "width", "height"):
+        if not isinstance(camera[key], int) or isinstance(camera[key], bool):
+            raise ValueError(f"配置 camera.{key} 必须是整数")
+    if camera["index"] < 0 or camera["width"] <= 0 or camera["height"] <= 0:
+        raise ValueError("配置 camera 的编号和尺寸必须有效")
+
+    recognizer = cfg["recognizer"]
+    if (
+        not isinstance(recognizer["max_num_hands"], int)
+        or isinstance(recognizer["max_num_hands"], bool)
+        or recognizer["max_num_hands"] < 1
+    ):
+        raise ValueError("配置 recognizer.max_num_hands 必须是正整数")
+    for key in (
+        "min_detection_confidence",
+        "min_tracking_confidence",
+        "smooth_factor",
+    ):
+        value = recognizer[key]
+        if not is_number(value) or not 0 <= value <= 1:
+            raise ValueError(f"配置 recognizer.{key} 必须在 0 到 1 之间")
+
+    if cfg["driver"]["type"] == "lhandpro":
+        canfd = cfg["driver"].get("canfd")
+        if not isinstance(canfd, dict) or "library_path" not in canfd:
+            raise ValueError("配置 driver.canfd 缺少 library_path")
+    if not isinstance(cfg["hand"]["joints"], list) or not cfg["hand"]["joints"]:
+        raise ValueError("配置 hand.joints 必须是非空列表")
+    for index, joint in enumerate(cfg["hand"]["joints"]):
+        if not isinstance(joint, dict):
+            raise ValueError(f"配置 hand.joints[{index}] 必须是映射")
+        if not isinstance(joint.get("name"), str) or not joint["name"]:
+            raise ValueError(f"配置 hand.joints[{index}].name 无效")
+        if joint.get("src") is not None and not isinstance(joint.get("src"), str):
+            raise ValueError(f"配置 hand.joints[{index}].src 无效")
+        joint_range = joint.get("range")
+        if (
+            not isinstance(joint_range, (list, tuple))
+            or len(joint_range) != 2
+            or not all(is_number(value) for value in joint_range)
+        ):
+            raise ValueError(f"配置 hand.joints[{index}].range 必须包含两个数字")
+    return cfg
+
+
+@contextmanager
+def electron_protocol_output(enabled: bool):
+    """Give Electron a clean JSON stream while routing all diagnostics to stderr."""
+
+    if not enabled:
+        yield sys.stdout
+        return
+
+    protocol_stdout = sys.stdout
+    try:
+        protocol_stdout.flush()
+        sys.stderr.flush()
+        stdout_fd = protocol_stdout.fileno()
+        stderr_fd = sys.stderr.fileno()
+        protocol_fd = os.dup(stdout_fd)
+        restore_fd = os.dup(stdout_fd)
+    except (AttributeError, OSError, ValueError):
+        # In-memory streams used by tests do not expose OS file descriptors.
+        # Python-level redirection is sufficient there because no native DLL
+        # can write into the synthetic stream.
+        with redirect_stdout(sys.stderr):
+            yield protocol_stdout
+        return
+
+    protocol_stream = os.fdopen(
+        protocol_fd,
+        "w",
+        encoding="utf-8",
+        buffering=1,
+        newline="\n",
+    )
+    try:
+        # Native OpenCV/MediaPipe/DLL logs bypass redirect_stdout and write to
+        # fd 1 directly. Redirect fd 1 itself, while the duplicated descriptor
+        # remains the bridge-only JSON channel.
+        os.dup2(stderr_fd, stdout_fd)
+        yield protocol_stream
+    finally:
+        try:
+            try:
+                protocol_stream.close()
+            except (BrokenPipeError, OSError):
+                pass
+            protocol_stdout.flush()
+        finally:
+            try:
+                os.dup2(restore_fd, stdout_fd)
+            finally:
+                os.close(restore_fd)
 
 
 def make_driver(cfg: dict, joint_names):
@@ -86,26 +236,63 @@ def main(argv=None) -> int:
     ap.add_argument("--electron-bridge", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
 
-    cfg = load_config(args.config)
-    if args.driver:
-        cfg["driver"]["type"] = args.driver
-    if args.mode:
-        cfg["control"]["mode"] = args.mode
-    if args.camera is not None:
-        cfg["camera"]["index"] = args.camera
+    with electron_protocol_output(args.electron_bridge) as protocol_stdout:
+        bridge = (
+            ElectronBridge(sys.stdin, protocol_stdout)
+            if args.electron_bridge
+            else None
+        )
+        try:
+            try:
+                if bridge is not None:
+                    bridge.publish_status("config", state="starting")
+                cfg = load_config(args.config)
+                if not isinstance(cfg, dict):
+                    raise ValueError("配置根节点必须是映射")
+                # CLI overrides belong to configuration, so malformed section
+                # structure is reported as CONFIG_ERROR instead of RUNTIME_ERROR.
+                if args.driver:
+                    if not isinstance(cfg.get("driver"), dict):
+                        raise ValueError("配置缺少 driver 节")
+                    cfg["driver"]["type"] = args.driver
+                if args.mode:
+                    if not isinstance(cfg.get("control"), dict):
+                        raise ValueError("配置缺少 control 节")
+                    cfg["control"]["mode"] = args.mode
+                if args.camera is not None:
+                    if not isinstance(cfg.get("camera"), dict):
+                        raise ValueError("配置缺少 camera 节")
+                    cfg["camera"]["index"] = args.camera
+                cfg = validate_config(cfg)
+            except Exception as exc:
+                if bridge is None:
+                    raise
+                bridge.publish_fatal(
+                    "CONFIG_ERROR",
+                    f"无法读取配置文件 {args.config}",
+                    retryable=True,
+                )
+                print(f"配置文件读取失败: {exc}")
+                return EXIT_CONFIG_ERROR
 
-    protocol_stdout = sys.stdout
-    bridge = ElectronBridge(sys.stdin, protocol_stdout) if args.electron_bridge else None
-    log_context = redirect_stdout(sys.stderr) if bridge is not None else nullcontext()
-    try:
-        with log_context:
-            # 入口统一拥有运行资源；无论 _run 正常返回还是抛出异常，
-            # 离开 with 时都会按确定顺序释放驱动、摄像头和识别器。
-            with RuntimeResources(destroy_windows=cv2.destroyAllWindows) as resources:
-                return _run(cfg, args, resources, bridge=bridge)
-    finally:
-        if bridge is not None:
-            bridge.close()
+            try:
+                # 入口统一拥有运行资源；无论 _run 正常返回还是抛出异常，
+                # 离开 with 时都会按确定顺序释放驱动、摄像头和识别器。
+                with RuntimeResources(destroy_windows=cv2.destroyAllWindows) as resources:
+                    return _run(cfg, args, resources, bridge=bridge)
+            except Exception:
+                if bridge is None:
+                    raise
+                bridge.publish_fatal(
+                    "RUNTIME_ERROR",
+                    "RP-Hand 运行时发生异常",
+                    retryable=True,
+                )
+                traceback.print_exc()
+                return EXIT_RUNTIME_ERROR
+        finally:
+            if bridge is not None:
+                bridge.close()
 
 
 def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
@@ -125,13 +312,31 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
         cfg["hand"].get("input_calibration", {}),
         cfg["hand"].get("pinch_assist", {}),
     )
+    if bridge is not None:
+        bridge.publish_status(
+            "driver",
+            state="starting",
+            driver_type=cfg["driver"]["type"],
+        )
     driver = make_driver(cfg, mapper.joint_names)
     resources.driver = driver
     if not driver.connect():
         print("驱动连接失败, 可先用 --driver sim 调试手势识别部分。")
-        return 1
+        if bridge is not None:
+            bridge.publish_fatal(
+                "DRIVER_CONNECT_FAILED",
+                "灵巧手驱动连接失败",
+                retryable=True,
+            )
+        return EXIT_DRIVER_CONNECT_FAILED
 
     ccfg = cfg["camera"]
+    if bridge is not None:
+        bridge.publish_status(
+            "camera",
+            state="starting",
+            camera_index=ccfg["index"],
+        )
     # Windows 上部分摄像头用默认 MSMF 后端抓不到帧, 强制 DirectShow
     if sys.platform == "win32":
         cap = cv2.VideoCapture(ccfg["index"], cv2.CAP_DSHOW)
@@ -142,7 +347,16 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, ccfg["height"])
     if not cap.isOpened():
         print(f"无法打开摄像头 {ccfg['index']}")
-        return 1
+        if bridge is not None:
+            bridge.publish_fatal(
+                "CAMERA_OPEN_FAILED",
+                f"无法打开摄像头 {ccfg['index']}",
+                retryable=True,
+            )
+        return EXIT_CAMERA_OPEN_FAILED
+
+    if bridge is not None:
+        bridge.publish_ready()
 
     mode = cfg["control"]["mode"]
     detection_enabled = True
@@ -175,7 +389,13 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
             fail_count += 1
             if fail_count > 30:  # 连续失败约1秒才放弃 (摄像头初始化期可能丢帧)
                 print("持续无法读取摄像头帧, 退出")
-                break
+                if bridge is not None:
+                    bridge.publish_fatal(
+                        "CAMERA_READ_FAILED",
+                        "持续无法读取摄像头画面",
+                        retryable=True,
+                    )
+                return EXIT_CAMERA_READ_FAILED
             time.sleep(0.03)
             continue
         fail_count = 0

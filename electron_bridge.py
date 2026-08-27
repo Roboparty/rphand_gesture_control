@@ -7,7 +7,7 @@ import json
 import queue
 import threading
 import time
-from typing import IO, Optional
+from typing import IO, Any, Optional
 
 import cv2
 import numpy as np
@@ -67,6 +67,10 @@ class ElectronBridge:
             tuple[np.ndarray, dict[str, object] | None]
         ] = queue.Queue(maxsize=1)
         self._stop = threading.Event()
+        # Frame publishing runs on a worker thread while lifecycle events are
+        # emitted by the control thread. Serialize stdout writes so one JSON
+        # line can never be interleaved with another.
+        self._write_lock = threading.Lock()
         self._last_submitted_at = float("-inf")
         self._sequence = 0
         self._command_thread = threading.Thread(
@@ -110,6 +114,36 @@ class ElectronBridge:
             self._frames.put_nowait(latest)
         return True
 
+    def publish_status(self, phase: str, *, state: str, **details: Any) -> bool:
+        """Publish one machine-readable startup phase for the Electron shell."""
+
+        return self._write_message(
+            {"type": "status", "phase": phase, "state": state, **details}
+        )
+
+    def publish_ready(self) -> bool:
+        """Report that the driver and camera are initialized."""
+
+        return self._write_message({"type": "ready"})
+
+    def publish_fatal(
+        self,
+        code: str,
+        message: str,
+        *,
+        retryable: bool,
+    ) -> bool:
+        """Report a fatal backend failure without exposing a traceback as UI text."""
+
+        return self._write_message(
+            {
+                "type": "fatal",
+                "code": code,
+                "message": message,
+                "retryable": bool(retryable),
+            }
+        )
+
     def close(self) -> None:
         self._stop.set()
         self._frame_thread.join(timeout=2.0)
@@ -143,11 +177,16 @@ class ElectronBridge:
             }
             if state is not None:
                 message["state"] = state
-            try:
-                self._output_stream.write(
-                    json.dumps(message, separators=(",", ":")) + "\n"
-                )
-                self._output_stream.flush()
-            except (BrokenPipeError, OSError, ValueError):
-                self._stop.set()
+            if not self._write_message(message):
                 return
+
+    def _write_message(self, message: dict[str, Any]) -> bool:
+        line = json.dumps(message, separators=(",", ":")) + "\n"
+        try:
+            with self._write_lock:
+                self._output_stream.write(line)
+                self._output_stream.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            self._stop.set()
+            return False
+        return True

@@ -103,7 +103,26 @@ class FakeBridge:
         self.keys = iter(keys or [ord("e"), ord("q")])
         self.frames = 0
         self.states = []
+        self.events = []
         self.closed = False
+
+    def publish_status(self, phase, *, state="starting", **details):
+        self.events.append(
+            {"type": "status", "phase": phase, "state": state, **details}
+        )
+
+    def publish_ready(self):
+        self.events.append({"type": "ready"})
+
+    def publish_fatal(self, code, message, *, retryable=True):
+        self.events.append(
+            {
+                "type": "fatal",
+                "code": code,
+                "message": message,
+                "retryable": retryable,
+            }
+        )
 
     def submit_frame(self, _frame, *, now=None, state=None):
         self.frames += 1
@@ -160,6 +179,7 @@ def test_electron_bridge_reuses_the_existing_emergency_stop_branch(monkeypatch):
     assert bridge.frames == 2
     assert bridge.closed is True
     assert driver.stop_calls == 1
+    assert {"type": "ready"} in bridge.events
     assert bridge.states[0]["telemetry"]["gesture"] == "unknown"
     assert bridge.states[0]["telemetry"]["joints"][0]["value"] == 5000.0
 
