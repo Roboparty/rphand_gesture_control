@@ -27,6 +27,10 @@ test('serializes the existing controls and the new explicit GUI controls', () =>
     commandLine('mode_gesture'),
     '{"type":"command","command":"mode_gesture"}\n',
   );
+  assert.equal(
+    commandLine('retargeting_dexpilot'),
+    '{"type":"command","command":"retargeting_dexpilot"}\n',
+  );
   assert.throws(() => commandLine('shell'), /Unsupported command/);
 });
 
@@ -91,6 +95,9 @@ test('preserves validated Python runtime state on a frame', () => {
     jpeg: 'YWJj',
     state: {
       mode: 'rps',
+      retargeting_strategy: 'dexpilot',
+      retargeting_effective: 'stable',
+      retargeting_fallback: '掌宽过小',
       detection_enabled: false,
       sending: true,
       safety_state: 'stopped',
@@ -100,6 +107,9 @@ test('preserves validated Python runtime state on a frame', () => {
 
   assert.deepEqual(payload.state, {
     mode: 'rps',
+    retargeting_strategy: 'dexpilot',
+    retargeting_effective: 'stable',
+    retargeting_fallback: '掌宽过小',
     detection_enabled: false,
     sending: true,
     safety_state: 'stopped',
@@ -111,6 +121,9 @@ test('preserves validated Python runtime state on a frame', () => {
     jpeg: 'YWJj',
     state: {
       mode: 'invalid',
+      retargeting_strategy: 'stable',
+      retargeting_effective: 'stable',
+      retargeting_fallback: '',
       detection_enabled: true,
       sending: true,
       safety_state: 'tracking',
@@ -122,6 +135,9 @@ test('preserves validated Python runtime state on a frame', () => {
     jpeg: 'YWJj',
     state: {
       mode: 'mirror',
+      retargeting_strategy: 'stable',
+      retargeting_effective: 'stable',
+      retargeting_fallback: '',
       detection_enabled: true,
       sending: true,
       safety_state: 'invalid',
@@ -136,6 +152,9 @@ test('rejects malformed Electron telemetry instead of rendering unsafe values', 
     jpeg: 'YWJj',
     state: {
       mode: 'mirror',
+      retargeting_strategy: 'stable',
+      retargeting_effective: 'stable',
+      retargeting_fallback: '',
       detection_enabled: true,
       sending: true,
       safety_state: 'tracking',
@@ -167,6 +186,10 @@ test('rejects malformed Electron telemetry instead of rendering unsafe values', 
   const missingFinger = structuredClone(base);
   delete missingFinger.state.telemetry.inputs.ring;
   assert.equal(parseFrameLine(JSON.stringify(missingFinger)), null);
+
+  const unknownStrategy = structuredClone(base);
+  unknownStrategy.state.retargeting_strategy = 'unknown';
+  assert.equal(parseFrameLine(JSON.stringify(unknownStrategy)), null);
 });
 
 test('launches the physical hand driver from Electron by default', () => {

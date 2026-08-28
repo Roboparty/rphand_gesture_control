@@ -431,7 +431,7 @@ body,
   transform: translateX(20px);
 }
 
-#mode-select {
+#retargeting-select {
   width: 148px;
   max-width: 100%;
   min-height: 44px;
@@ -446,7 +446,7 @@ body,
 
 #detection-toggle:focus-visible,
 #sending-toggle:focus-visible,
-#mode-select:focus-visible,
+#retargeting-select:focus-visible,
 #recover-control:focus-visible {
   outline: 2px solid #1769e0;
   outline-offset: 2px;
@@ -454,7 +454,7 @@ body,
 
 #detection-toggle:disabled,
 #sending-toggle:disabled,
-#mode-select:disabled,
+#retargeting-select:disabled,
 #recover-control:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -544,7 +544,7 @@ body,
     justify-self: end;
   }
 
-  #mode-select {
+  #retargeting-select {
     width: 100%;
   }
 

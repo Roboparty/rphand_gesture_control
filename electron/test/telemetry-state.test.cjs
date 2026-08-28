@@ -6,6 +6,9 @@ const { buildTelemetryView } = require('../renderer/telemetry-state.cjs');
 test('converts normalized runtime telemetry into renderer display values', () => {
   const view = buildTelemetryView({
     mode: 'mirror',
+    retargeting_strategy: 'dexpilot',
+    retargeting_effective: 'stable',
+    retargeting_fallback: '掌宽过小',
     sending: true,
     safety_state: 'tracking',
     telemetry: {
@@ -29,6 +32,9 @@ test('converts normalized runtime telemetry into renderer display values', () =>
   });
 
   assert.equal(view.mode, 'mirror');
+  assert.equal(view.retargetingStrategy, 'dexpilot');
+  assert.equal(view.retargetingEffective, 'stable');
+  assert.equal(view.retargetingFallback, '掌宽过小');
   assert.equal(view.status, 'SENDING');
   assert.equal(view.statusTone, 'success');
   assert.equal(view.gesture, 'Gesture: pinch');
@@ -44,6 +50,9 @@ test('converts normalized runtime telemetry into renderer display values', () =>
 test('reports paused or disconnected output without changing control state', () => {
   const view = buildTelemetryView({
     mode: 'mirror',
+    retargeting_strategy: 'stable',
+    retargeting_effective: 'stable',
+    retargeting_fallback: '',
     sending: false,
     safety_state: 'safe_hold',
     telemetry: {
