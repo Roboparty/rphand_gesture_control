@@ -17,8 +17,8 @@ CALIBRATION = {
 }
 
 PINCH_JOINTS = [
-    {"name": "thumb_bend", "src": "thumb", "range": [0, 10000]},
     {"name": "thumb_rotate", "src": "thumb_spread", "range": [0, 10000]},
+    {"name": "thumb_bend", "src": "thumb", "range": [0, 10000]},
     {"name": "index_finger", "src": "index", "range": [0, 10000]},
     {"name": "middle_finger", "src": "middle", "range": [0, 10000]},
 ]
@@ -89,7 +89,22 @@ def test_invalid_open_baseline_is_rejected():
         GestureMapper(JOINTS, {}, {"index": {"open": 1.0}})
 
 
-def test_real_hardware_open_hand_sample_maps_all_six_joints_to_zero():
+def test_default_joint_order_matches_lhandpro_dh116_motor_order():
+    """DH116 轴 1 是拇指外展，轴 2 才是拇指屈曲。"""
+
+    config_path = Path(__file__).resolve().parents[1] / "config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    assert [
+        (joint["name"], joint["src"], joint["range"])
+        for joint in config["hand"]["joints"][:2]
+    ] == [
+        ("thumb_rotate", "thumb_spread", [0, 10000]),
+        ("thumb_bend", "thumb", [0, 10000]),
+    ]
+
+
+def test_real_hardware_open_hand_sample_maps_to_configured_open_endpoints():
     config_path = Path(__file__).resolve().parents[1] / "config.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     mapper = GestureMapper(
@@ -107,6 +122,22 @@ def test_real_hardware_open_hand_sample_maps_all_six_joints_to_zero():
     }
 
     assert mapper.map_mirror(open_sample) == [0.0] * 6
+
+
+def test_default_presets_follow_thumb_root_hardware_endpoints():
+    """预设必须保持真机验证过的第一轴张开端为零。"""
+
+    config_path = Path(__file__).resolve().parents[1] / "config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    assert config["presets"] == {
+        "open_palm": [0, 0, 0, 0, 0, 0],
+        "fist": [10000, 10000, 10000, 10000, 10000, 10000],
+        "pinch": [6000, 8000, 8500, 0, 0, 0],
+        "point": [10000, 10000, 0, 10000, 10000, 10000],
+        "victory": [10000, 10000, 0, 0, 10000, 10000],
+        "thumbs_up": [8000, 0, 10000, 10000, 10000, 10000],
+    }
 
 
 def test_real_hardware_thumb_and_index_closed_samples_reach_full_travel():
@@ -128,9 +159,9 @@ def test_real_hardware_thumb_and_index_closed_samples_reach_full_travel():
 
     positions = mapper.map_mirror(sample)
 
-    assert positions[0] == pytest.approx(10000.0)
+    assert positions[0] == pytest.approx(0.0)
+    assert positions[1] == pytest.approx(10000.0)
     assert positions[2] == pytest.approx(10000.0)
-    assert positions[1] == pytest.approx(0.0)
     assert positions[3:] == pytest.approx([0.0, 0.0, 0.0])
 
 
@@ -202,8 +233,8 @@ def test_pinch_assist_progressively_enhances_only_configured_sources():
     half = mapper.map_mirror(inputs, pinch_strength=0.5)
     full = mapper.map_mirror(inputs, pinch_strength=1.0)
 
-    assert half == pytest.approx([4000, 3000, 4250, 2000])
-    assert full == pytest.approx([8000, 6000, 8500, 2000])
+    assert half == pytest.approx([3000, 4000, 4250, 2000])
+    assert full == pytest.approx([6000, 8000, 8500, 2000])
 
 
 def test_disabled_pinch_assist_preserves_plain_continuous_mapping():
@@ -216,7 +247,7 @@ def test_disabled_pinch_assist_preserves_plain_continuous_mapping():
     inputs = {"thumb": 0.1, "thumb_spread": 0.2, "index": 0.3, "middle": 0.4}
 
     assert mapper.map_mirror(inputs, pinch_strength=1.0) == pytest.approx(
-        [1000, 2000, 3000, 4000]
+        [2000, 1000, 3000, 4000]
     )
 
 
