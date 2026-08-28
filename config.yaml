@@ -89,16 +89,17 @@ hand:
       ring:   { open: 0.03, closed: 0.33 }
       pinky:  { open: 0.03, closed: 0.285 }
 
-  # 关节通道定义 (默认按 6 主动自由度型号, 与厂商示例一致)。
-  # 位置范围 0~10000: 0=张开, 10000=完全弯曲 (与厂商示例 main.py 一致)。
-  # 若实际方向相反, 把 range 两个数对调即可, 如 [10000, 0]。
+  # 关节通道必须严格遵循 DH116 的电机顺序：拇指外展、拇指屈曲、
+  # 食指、中指、无名指、小指。列表索引会直接映射到电机 ID 1~6。
+  # range 始终按 [张开端, 闭合端] 书写。真机验证六个通道的张开端均为 0，
+  # 闭合端均为 10000；拇指两个通道的顺序仍必须严格遵循下方定义。
   # src: 由哪个输入驱动
   #   thumb/index/middle/ring/pinky = 对应手指弯曲度
   #   thumb_spread = 拇指侧摆张角 (拇指与食指掌骨夹角, 驱动大拇指 roll)
   #   null = 保持 range[0]
   joints:
-    - { name: thumb_bend,    src: thumb,        range: [0, 10000] }
     - { name: thumb_rotate,  src: thumb_spread, range: [0, 10000] }
+    - { name: thumb_bend,    src: thumb,        range: [0, 10000] }
     - { name: index_finger,  src: index,  range: [0, 10000] }
     - { name: middle_finger, src: middle, range: [0, 10000] }
     - { name: ring_finger,   src: ring,   range: [0, 10000] }
@@ -108,7 +109,7 @@ hand:
 presets:
   open_palm: [0, 0, 0, 0, 0, 0]
   fist:      [10000, 10000, 10000, 10000, 10000, 10000]
-  pinch:     [8000, 6000, 8500, 0, 0, 0]
+  pinch:     [6000, 8000, 8500, 0, 0, 0]
   point:     [10000, 10000, 0, 10000, 10000, 10000]
   victory:   [10000, 10000, 0, 0, 10000, 10000]
-  thumbs_up: [0, 8000, 10000, 10000, 10000, 10000]
+  thumbs_up: [8000, 0, 10000, 10000, 10000, 10000]

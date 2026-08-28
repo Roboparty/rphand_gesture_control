@@ -3,9 +3,9 @@
 RP-Hand Gesture 是一个面向 Windows x64 的实时灵巧手控制程序。它通过普通 RGB 摄像头和
 MediaPipe 获取人手关键点，将手指动作连续映射到 LHandPro 灵巧手，并通过 USB-CANFD 下发控制指令。
 
-当前版本为 **v1.1.0**。该版本以“先能稳定使用”为目标，Electron GUI 只开放连续控制，
-并提供 CurlMap 与 DexPilot 两种映射算法供同场景 A/B 测试。手势触发和猜拳实验代码仍保留在
-源码中，但暂不显示在正式界面。
+当前版本为 **v1.1.1**。该版本优化了拇指外展与屈曲的双自由度运动表现，并统一了 CurlMap、
+DexPilot 与预设动作的六轴输出约定。Electron GUI 提供两种映射算法供同场景 A/B 测试；手势触发
+和猜拳实验代码仍保留在源码中，但暂不显示在正式界面。
 
 ## 主要功能
 
@@ -19,12 +19,12 @@ MediaPipe 获取人手关键点，将手指动作连续映射到 LHandPro 灵巧
 
 本项目已在真实 LHandPro 灵巧手与 CAN-FD 适配器上完成连接、回零、连续映射、急停及恢复测试。
 
-## 安装 v1.1.0
+## 安装 v1.1.1
 
 构建后的安装包名称为：
 
 ```text
-RP-Hand Gesture Setup 1.1.0.exe
+RP-Hand Gesture Setup 1.1.1.exe
 ```
 
 安装后的应用、开始菜单快捷方式和主程序名称均为 **RP-Hand Gesture**。普通使用者不需要单独安装
@@ -136,7 +136,7 @@ npm run dist:win
 该命令会先运行 Electron 测试，再使用 PyInstaller 构建 Python 后端，最后通过 electron-builder 生成：
 
 ```text
-electron/dist/RP-Hand Gesture Setup 1.1.0.exe
+electron/dist/RP-Hand Gesture Setup 1.1.1.exe
 ```
 
 内部 Python 后端仍使用 `resources/RP-Hand/RP-Hand.exe`，这是 Electron 与 PyInstaller 之间的内部路径，

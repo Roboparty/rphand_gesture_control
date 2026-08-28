@@ -18,8 +18,12 @@ FINGER_CHAINS = {
     "pinky": (17, 18, 19, 20),
 }
 FINGER_TIPS = {"index": 8, "middle": 12, "ring": 16, "pinky": 20}
-CHANNELS = ("thumb", "thumb_spread", "index", "middle", "ring", "pinky")
+# The channel order is also the DH116 motor order. Keeping this contract next
+# to the solver prevents an otherwise plausible thumb flexion/abduction swap.
+CHANNELS = ("thumb_spread", "thumb", "index", "middle", "ring", "pinky")
 CONTACT_CHANNEL_INDEX = {"index": 2, "middle": 3, "ring": 4, "pinky": 5}
+THUMB_OPPOSITION_INDEX = 0
+THUMB_FLEXION_INDEX = 1
 
 
 class GeometryError(ValueError):
@@ -146,6 +150,12 @@ class DexPilot6DofMapper:
     ) -> None:
         if len(joints) != len(CHANNELS):
             raise ValueError("DexPilot 6DOF 需要恰好六个关节")
+        joint_sources = tuple(joint.get("src") for joint in joints)
+        if joint_sources != CHANNELS:
+            raise ValueError(
+                "DexPilot 关节顺序必须匹配 DH116 电机顺序: "
+                "thumb_spread, thumb, index, middle, ring, pinky"
+            )
 
         self._joints = list(joints)
         self._input_calibration = dict(input_calibration)
@@ -211,9 +221,9 @@ class DexPilot6DofMapper:
             objective_weight = self._contact_weight * strength
             finger_index = CONTACT_CHANNEL_INDEX[finger]
             for channel_index, target in (
-                (0, 0.82),
+                (THUMB_FLEXION_INDEX, 0.82),
                 (finger_index, max(base[finger_index], 0.72 * strength)),
-                (1, self._opposition_targets[finger]),
+                (THUMB_OPPOSITION_INDEX, self._opposition_targets[finger]),
             ):
                 row = np.zeros(len(CHANNELS), dtype=np.float64)
                 row[channel_index] = 1.0
