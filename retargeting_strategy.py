@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, Sequence
 
+import numpy as np
+
 if TYPE_CHECKING:
     from gesture_recognizer import HandObservation
 
@@ -92,4 +94,23 @@ class RetargetingCoordinator:
         )
 
     def map_observation(self, observation: HandObservation) -> RetargetingResult:
-        return self._stable_result(observation)
+        if self._selected_strategy == RETARGETING_STABLE:
+            return self._stable_result(observation)
+
+        # set_strategy() guarantees the experimental mapper exists before this path.
+        assert self._experimental_mapper is not None
+        try:
+            positions, display = self._experimental_mapper.map_observation(observation)
+            return RetargetingResult(
+                positions=list(positions),
+                display_inputs=dict(display),
+                selected_strategy=RETARGETING_DEXPILOT,
+                effective_strategy=RETARGETING_DEXPILOT,
+            )
+        except (ValueError, FloatingPointError, np.linalg.LinAlgError) as exc:
+            # Invalid tracking frames fall back for one frame; programmer errors surface.
+            return self._stable_result(
+                observation,
+                selected=RETARGETING_DEXPILOT,
+                fallback_reason=str(exc),
+            )
