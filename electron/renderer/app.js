@@ -2,7 +2,7 @@
 const frame = document.getElementById('frame');
 const detectionToggle = document.getElementById('detection-toggle');
 const sendingToggle = document.getElementById('sending-toggle');
-const modeSelect = document.getElementById('mode-select');
+const retargetingSelect = document.getElementById('retargeting-select');
 const recoveryButton = document.getElementById('recover-control');
 const stopButton = document.getElementById('emergency-stop');
 const processState = document.getElementById('process-state');
@@ -33,7 +33,7 @@ let emergencyLatched = false;
 let emergencyRequested = false;
 let pendingDetection = null;
 let pendingSending = null;
-let pendingMode = null;
+let pendingRetargeting = null;
 let startupTick = 0;
 let startupValue = 8;
 let startupFinished = false;
@@ -125,7 +125,7 @@ function setRuntimeControlsDisabled(disabled) {
   recoveryButton.disabled = disabled;
   detectionToggle.disabled = disabled;
   sendingToggle.disabled = disabled;
-  modeSelect.disabled = disabled;
+  retargetingSelect.disabled = disabled;
 }
 
 function resetRuntimeDisplay() {
@@ -133,7 +133,7 @@ function resetRuntimeDisplay() {
   emergencyRequested = false;
   pendingDetection = null;
   pendingSending = null;
-  pendingMode = null;
+  pendingRetargeting = null;
   sendingState.textContent = 'DISCONNECTED';
   sendingState.dataset.tone = 'danger';
   gestureState.textContent = 'Gesture: none';
@@ -209,7 +209,7 @@ function applyRuntimeState(state) {
   recoveryButton.disabled = !stopped;
   detectionToggle.disabled = stopped;
   sendingToggle.disabled = stopped;
-  modeSelect.disabled = stopped;
+  retargetingSelect.disabled = stopped;
   if (pendingDetection === state.detection_enabled) {
     pendingDetection = null;
   }
@@ -228,11 +228,14 @@ function applyRuntimeState(state) {
   if (pendingSending === null) {
     sendingToggle.setAttribute('aria-checked', state.sending ? 'true' : 'false');
   }
-  if (pendingMode === state.mode) {
-    pendingMode = null;
+  if (pendingRetargeting === state.retargeting_strategy) {
+    pendingRetargeting = null;
   }
-  if (pendingMode === null && modeSelect.value !== state.mode) {
-    modeSelect.value = state.mode;
+  if (
+    pendingRetargeting === null
+    && retargetingSelect.value !== state.retargeting_strategy
+  ) {
+    retargetingSelect.value = state.retargeting_strategy;
   }
   renderTelemetry(state);
 }
@@ -294,9 +297,9 @@ detectionToggle.addEventListener('click', () => {
   detectionToggle.setAttribute('aria-checked', pendingDetection ? 'true' : 'false');
   window.rpHand.sendCommand('toggle_detection');
 });
-modeSelect.addEventListener('change', () => {
-  pendingMode = modeSelect.value;
-  window.rpHand.sendCommand(`mode_${modeSelect.value}`);
+retargetingSelect.addEventListener('change', () => {
+  pendingRetargeting = retargetingSelect.value;
+  window.rpHand.sendCommand(`retargeting_${retargetingSelect.value}`);
 });
 frame.addEventListener('load', completeStartupOnce);
 window.addEventListener('keydown', (event) => {

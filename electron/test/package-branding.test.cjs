@@ -11,6 +11,7 @@ test('packages the desktop application as RP-Hand Gesture', () => {
   );
 
   assert.equal(packageJson.build.productName, 'RP-Hand Gesture');
+  assert.equal(packageJson.version, '1.1.0');
   assert.equal(packageJson.license, 'MIT');
   assert.equal(
     packageJson.build.artifactName,

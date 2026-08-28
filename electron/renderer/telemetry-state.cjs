@@ -21,6 +21,9 @@ function buildTelemetryView(state) {
 
   return {
     mode: state.mode,
+    retargetingStrategy: state.retargeting_strategy,
+    retargetingEffective: state.retargeting_effective,
+    retargetingFallback: state.retargeting_fallback,
     status,
     statusTone: state.sending && telemetry.driver_connected ? 'success' : 'danger',
     detected: telemetry.detected,

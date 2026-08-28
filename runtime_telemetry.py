@@ -14,6 +14,9 @@ def _unit(value: object) -> float:
 def build_runtime_state(
     *,
     mode: str,
+    retargeting_strategy: str,
+    retargeting_effective: str,
+    retargeting_fallback: str,
     detection_enabled: bool,
     sending: bool,
     safety_state: str,
@@ -54,6 +57,9 @@ def build_runtime_state(
     gesture = str(getattr(observation, "gesture", "none"))
     return {
         "mode": str(mode),
+        "retargeting_strategy": str(retargeting_strategy),
+        "retargeting_effective": str(retargeting_effective),
+        "retargeting_fallback": str(retargeting_fallback),
         "detection_enabled": bool(detection_enabled),
         "sending": bool(sending),
         "safety_state": str(safety_state),

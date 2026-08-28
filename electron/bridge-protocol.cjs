@@ -12,9 +12,12 @@ const ALLOWED_COMMANDS = new Set([
   'mode_mirror',
   'mode_gesture',
   'mode_rps',
+  'retargeting_stable',
+  'retargeting_dexpilot',
 ]);
 
 const VALID_MODES = new Set(['mirror', 'gesture', 'rps']);
+const VALID_RETARGETING_STRATEGIES = new Set(['stable', 'dexpilot']);
 const VALID_SAFETY_STATES = new Set([
   'waiting',
   'tracking',
@@ -135,6 +138,9 @@ function parseBackendLine(line) {
         payload.state === null
         || typeof payload.state !== 'object'
         || !VALID_MODES.has(payload.state.mode)
+        || !VALID_RETARGETING_STRATEGIES.has(payload.state.retargeting_strategy)
+        || !VALID_RETARGETING_STRATEGIES.has(payload.state.retargeting_effective)
+        || typeof payload.state.retargeting_fallback !== 'string'
         || typeof payload.state.detection_enabled !== 'boolean'
         || typeof payload.state.sending !== 'boolean'
         || !VALID_SAFETY_STATES.has(payload.state.safety_state)

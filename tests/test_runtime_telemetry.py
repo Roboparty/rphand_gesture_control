@@ -20,6 +20,9 @@ def test_builds_json_safe_runtime_state_for_the_electron_sidebar():
 
     state = build_runtime_state(
         mode="mirror",
+        retargeting_strategy="dexpilot",
+        retargeting_effective="stable",
+        retargeting_fallback="掌宽过小",
         detection_enabled=True,
         sending=True,
         safety_state="tracking",
@@ -33,6 +36,9 @@ def test_builds_json_safe_runtime_state_for_the_electron_sidebar():
     )
 
     assert state["mode"] == "mirror"
+    assert state["retargeting_strategy"] == "dexpilot"
+    assert state["retargeting_effective"] == "stable"
+    assert state["retargeting_fallback"] == "掌宽过小"
     assert state["telemetry"]["gesture"] == "pinch"
     assert state["telemetry"]["gesture_label"] == "捏合"
     assert state["telemetry"]["inputs"]["thumb"] == 1.0
@@ -56,6 +62,9 @@ def test_undetected_observation_reports_empty_input_activity():
 
     state = build_runtime_state(
         mode="mirror",
+        retargeting_strategy="stable",
+        retargeting_effective="stable",
+        retargeting_fallback="",
         detection_enabled=False,
         sending=False,
         safety_state="safe_hold",

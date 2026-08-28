@@ -3,8 +3,9 @@
 RP-Hand Gesture 是一个面向 Windows x64 的实时灵巧手控制程序。它通过普通 RGB 摄像头和
 MediaPipe 获取人手关键点，将手指动作连续映射到 LHandPro 灵巧手，并通过 USB-CANFD 下发控制指令。
 
-当前稳定版本为 **v1.0.0**。该版本以“先能稳定使用”为目标，Electron GUI 只开放连续映射模式；
-手势触发和猜拳实验代码仍保留在源码中，但暂不显示在正式界面。
+当前版本为 **v1.1.0**。该版本以“先能稳定使用”为目标，Electron GUI 只开放连续控制，
+并提供 CurlMap 与 DexPilot 两种映射算法供同场景 A/B 测试。手势触发和猜拳实验代码仍保留在
+源码中，但暂不显示在正式界面。
 
 ## 主要功能
 
@@ -18,12 +19,12 @@ MediaPipe 获取人手关键点，将手指动作连续映射到 LHandPro 灵巧
 
 本项目已在真实 LHandPro 灵巧手与 CAN-FD 适配器上完成连接、回零、连续映射、急停及恢复测试。
 
-## 安装 v1.0.0
+## 安装 v1.1.0
 
 构建后的安装包名称为：
 
 ```text
-RP-Hand Gesture Setup 1.0.0.exe
+RP-Hand Gesture Setup 1.1.0.exe
 ```
 
 安装后的应用、开始菜单快捷方式和主程序名称均为 **RP-Hand Gesture**。普通使用者不需要单独安装
@@ -54,7 +55,7 @@ GitHub Releases 或 RoboParty 官方渠道获取安装包。
 |---|---|
 | 手部识别 | 开启或关闭摄像头画面中的 MediaPipe 手部识别；关闭后摄像头仍保持预览。 |
 | 指令发送 | 单独暂停或恢复向灵巧手发送关节指令，不影响手部识别。 |
-| 控制模式 | v1.0.0 正式界面仅开放“连续映射”。 |
+| 映射算法 | 在 `CurlMap` 与 `DexPilot` 之间切换。 |
 | 紧急停止 | 立即停止电机并锁存急停状态。 |
 | 恢复控制 | 仅在急停已生效时可用；确认周围安全后重新初始化控制并安全回张。 |
 
@@ -64,6 +65,15 @@ GitHub Releases 或 RoboParty 官方渠道获取安装包。
 - `E`：紧急停止。
 - `R`：执行受控恢复。
 - `Q`：安全退出。
+
+### 映射算法
+
+- **CurlMap**：默认算法，使用已完成的真机端点、手指弯曲度与 3/4/5 指回缩标定。
+- **DexPilot**：实验算法，使用掌心局部坐标、拇指到各指尖距离和时序约束，重点尝试改善对掌与多指接触。
+
+实验算法不是官方 dex-retargeting 的完整实现。RP-Hand 只有 6 个主动自由度，无法独立复现人手
+DIP 弯曲和手指侧摆；效果应以同场景真机 A/B 测试为准。实验算法遇到无效或退化的手部几何时，
+只对当前帧回退到稳定映射。任何异常也可立即手动切回稳定模式，急停和指令发送开关不受算法选择影响。
 
 ## 从源码运行
 
@@ -126,7 +136,7 @@ npm run dist:win
 该命令会先运行 Electron 测试，再使用 PyInstaller 构建 Python 后端，最后通过 electron-builder 生成：
 
 ```text
-electron/dist/RP-Hand Gesture Setup 1.0.0.exe
+electron/dist/RP-Hand Gesture Setup 1.1.0.exe
 ```
 
 内部 Python 后端仍使用 `resources/RP-Hand/RP-Hand.exe`，这是 Electron 与 PyInstaller 之间的内部路径，
@@ -168,6 +178,8 @@ npm test
 | `driver.canfd.device_index` | 适配器序号，`null` 表示自动选择第一个。 |
 | `driver.canfd.nom_baudrate` / `dat_baudrate` | CAN-FD 仲裁域与数据域波特率。 |
 | `camera.index` | 摄像头编号；无法打开时可尝试在 0 和 1 之间切换。 |
+| `hand.retargeting_strategy` | 启动时使用的映射算法，默认值为 `stable`。 |
+| `hand.dexpilot_6dof` | 实验映射的时序、接触阈值和对掌目标参数。 |
 | `hand.input_calibration` | 完全张手时 MediaPipe 残余输入的校正值。 |
 | `hand.joints` | 输入比例到灵巧手关节位置的映射范围。 |
 | `recognizer.smooth_factor` | 手指输入的平滑系数。 |
@@ -182,6 +194,8 @@ npm test
 ├── control_safety.py               # 丢手看门狗、急停和恢复状态
 ├── gesture_recognizer.py           # MediaPipe 检测与手指输入计算
 ├── gesture_mapping.py              # 手指输入到灵巧手关节的映射
+├── dexpilot_6dof.py                 # DexPilot 启发式六自由度实验映射
+├── retargeting_strategy.py          # 双映射策略选择与逐帧安全回退
 ├── runtime_telemetry.py            # GUI/TUI 共用的运行状态
 ├── electron_bridge.py              # Electron 与 Python 行协议
 ├── electron/                       # Electron GUI、测试与打包配置

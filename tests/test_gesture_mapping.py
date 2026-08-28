@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from gesture_mapping import GestureMapper
+from gesture_mapping import GestureMapper, project_normalized_value
 
 
 JOINTS = [
@@ -44,6 +44,14 @@ FINGER_RETARGETING = {
         "pinky": {"open": 0.0, "closed": 0.5},
     },
 }
+
+
+def test_project_normalized_value_clips_to_the_joint_range():
+    joint = {"name": "finger", "range": [1000, 9000]}
+
+    assert project_normalized_value(-0.5, joint) == 1000
+    assert project_normalized_value(0.25, joint) == 3000
+    assert project_normalized_value(1.5, joint) == 9000
 
 
 def test_open_baseline_maps_to_fully_open_and_closed_endpoint_is_preserved():

@@ -26,11 +26,17 @@ import yaml
 from app_paths import app_dir, resolve_app_path
 from app_runtime import RuntimeResources
 from control_safety import TrackingState, TrackingWatchdog
+from dexpilot_6dof import DexPilot6DofMapper
 from gesture_preset_controller import GesturePresetController
 from gesture_recognizer import GestureRecognizer, GESTURE_NAMES_CN, HandObservation
 from gesture_mapping import GestureMapper
 from hud_renderer import draw_hud
 from rock_paper_scissors import RockPaperScissorsController
+from retargeting_strategy import (
+    RETARGETING_DEXPILOT,
+    RETARGETING_STABLE,
+    RetargetingCoordinator,
+)
 from runtime_telemetry import build_runtime_state
 from drivers.sim_driver import SimHandDriver
 from electron_bridge import (
@@ -38,6 +44,8 @@ from electron_bridge import (
     KEY_MODE_MIRROR,
     KEY_MODE_RPS,
     KEY_RECOVER_CONTROL,
+    KEY_RETARGETING_DEXPILOT,
+    KEY_RETARGETING_STABLE,
     KEY_TOGGLE_DETECTION,
     ElectronBridge,
 )
@@ -327,6 +335,16 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
         cfg["hand"].get("pinch_assist", {}),
         cfg["hand"].get("finger_retargeting", {}),
     )
+    experimental_mapper = DexPilot6DofMapper(
+        cfg["hand"]["joints"],
+        cfg["hand"].get("input_calibration", {}),
+        cfg["hand"].get("dexpilot_6dof", {}),
+    )
+    retargeting = RetargetingCoordinator(
+        stable_mapper=mapper,
+        experimental_mapper=experimental_mapper,
+        strategy=cfg["hand"].get("retargeting_strategy", RETARGETING_STABLE),
+    )
     if bridge is not None:
         bridge.publish_status(
             "driver",
@@ -425,22 +443,19 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
 
         positions = None
         display_inputs = None
+        retargeting_effective = retargeting.selected_strategy
+        retargeting_fallback = ""
         if obs.detected:
-            vals = dict(obs.curls)
-            vals["thumb_spread"] = obs.thumb_spread
-            display_inputs = mapper.calibrate_inputs(vals)
+            if mode != "mirror":
+                values = dict(obs.curls)
+                values["thumb_spread"] = obs.thumb_spread
+                display_inputs = mapper.calibrate_inputs(values)
             if mode == "mirror":
-                positions = mapper.map_mirror(
-                    vals,
-                    pinch_strength=obs.pinch_strength,
-                    # 旧观测对象没有该字段时传 None，映射器会完整回退到
-                    # 原来的单角度路径，便于 A/B 测试和旧数据重放。
-                    finger_retractions=getattr(
-                        obs,
-                        "finger_retractions",
-                        None,
-                    ),
-                )
+                retargeting_result = retargeting.map_observation(obs)
+                positions = retargeting_result.positions
+                display_inputs = retargeting_result.display_inputs
+                retargeting_effective = retargeting_result.effective_strategy
+                retargeting_fallback = retargeting_result.fallback_reason
             elif mode == "rps":
                 rps_decision = rps_controller.update(
                     obs.gesture,
@@ -536,6 +551,9 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                 now=now,
                 state=build_runtime_state(
                     mode=mode,
+                    retargeting_strategy=retargeting.selected_strategy,
+                    retargeting_effective=retargeting_effective,
+                    retargeting_fallback=retargeting_fallback,
                     detection_enabled=detection_enabled,
                     sending=sending,
                     safety_state=decision.state.value,
@@ -560,6 +578,13 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
             gesture_controller.reset()
             rps_controller.reset()
             print(f"切换到 {mode} 模式")
+        elif key in {KEY_RETARGETING_STABLE, KEY_RETARGETING_DEXPILOT}:
+            strategy = {
+                KEY_RETARGETING_STABLE: RETARGETING_STABLE,
+                KEY_RETARGETING_DEXPILOT: RETARGETING_DEXPILOT,
+            }[key]
+            retargeting.set_strategy(strategy, current_positions=hud_positions)
+            print(f"切换到 {strategy} 映射算法")
         elif key == KEY_TOGGLE_DETECTION:
             detection_enabled = not detection_enabled
             if not detection_enabled:

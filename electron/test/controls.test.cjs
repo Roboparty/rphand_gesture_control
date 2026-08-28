@@ -8,20 +8,24 @@ const html = fs.readFileSync(path.join(rendererDir, 'index.html'), 'utf8');
 const css = fs.readFileSync(path.join(rendererDir, 'styles.css'), 'utf8');
 const appJs = fs.readFileSync(path.join(rendererDir, 'app.js'), 'utf8');
 
-test('exposes only the supported continuous mapping mode in the GUI', () => {
+test('exposes stable and experimental retargeting strategies in the GUI', () => {
   assert.match(html, /id="detection-toggle"/);
   assert.match(html, /role="switch"/);
   assert.match(html, /aria-checked="true"/);
-  assert.match(html, /<select[^>]+id="mode-select"/);
-  assert.match(html, /value="mirror"/);
-  assert.doesNotMatch(html, /value="gesture"/);
-  assert.doesNotMatch(html, /value="rps"/);
+  assert.match(html, /<label for="retargeting-select">映射算法<\/label>/);
+  assert.match(html, /id="retargeting-select"/);
+  assert.match(html, /value="stable"[^>]*>CurlMap/);
+  assert.match(html, /value="dexpilot"[^>]*>DexPilot/);
+  assert.match(
+    appJs,
+    /sendCommand\(`retargeting_\$\{retargetingSelect\.value\}`\)/,
+  );
   assert.doesNotMatch(appJs, /sendCommand\('cycle_mode'\)/);
 });
 
 test('keeps every interactive control at least 44 pixels tall', () => {
   assert.match(css, /#detection-toggle[\s\S]*?min-height:\s*44px/);
-  assert.match(css, /#mode-select[\s\S]*?min-height:\s*44px/);
+  assert.match(css, /#retargeting-select[\s\S]*?min-height:\s*44px/);
   assert.match(css, /#emergency-stop[\s\S]*?min-height:\s*44px/);
   assert.match(css, /#recover-control[\s\S]*?min-height:\s*44px/);
 });
@@ -48,7 +52,7 @@ test('keeps emergency and quit shortcuts available while a control has focus', (
 
 test('prevents stale frames from reverting optimistic GUI control state', () => {
   assert.match(appJs, /pendingDetection/);
-  assert.match(appJs, /pendingMode/);
+  assert.match(appJs, /pendingRetargeting/);
 });
 
 test('exposes an independent sending switch synchronized with runtime state', () => {
@@ -67,9 +71,9 @@ test('uses the same sending toggle for the button and Space shortcut', () => {
 test('keeps controls readable and contained in a narrow HUD panel', () => {
   assert.match(css, /container-type:\s*inline-size/);
   assert.match(css, /@container\s*\(max-width:\s*190px\)/);
-  assert.match(css, /#mode-select[\s\S]*?max-width:\s*100%/);
+  assert.match(css, /#retargeting-select[\s\S]*?max-width:\s*100%/);
   assert.match(css, /\.switch-track[\s\S]*?background:\s*#667085/);
-  assert.match(css, /#mode-select[\s\S]*?border:\s*1px solid #667085/);
+  assert.match(css, /#retargeting-select[\s\S]*?border:\s*1px solid #667085/);
 });
 
 test('keeps the sending switch at least 44 pixels tall', () => {
