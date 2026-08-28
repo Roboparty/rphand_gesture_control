@@ -998,4 +998,3 @@ git diff --check origin/feature/ring-calibration...HEAD
 ```
 
 Expected: clean worktree, only planned DexPilot commits, and no whitespace errors.
-
