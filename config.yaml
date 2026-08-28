@@ -46,6 +46,20 @@ driver:
     max_current: 1000     # 最大电流 (厂商示例默认 1000, 过大会夹疼/过小没力)
 
 hand:
+  # 重定向算法默认保持已经过真机验证的稳定映射；实验算法可由 GUI 切换。
+  retargeting_strategy: stable
+  dexpilot_6dof:
+    temporal_weight: 0.20
+    project_distance: 0.30
+    escape_distance: 0.42
+    base_weight: 1.0
+    contact_weight: 2.5
+    opposition_targets:
+      index: 0.35
+      middle: 0.52
+      ring: 0.70
+      pinky: 0.88
+
   # 2026-08-26 真机端点采样。MediaPipe 在完全伸直时仍输出约 19%~26%；
   # 拇指和食指的实测完全闭合值分别约为 0.446 与 0.672。
   input_calibration:

@@ -15,6 +15,18 @@ class FakeObservation:
         self.thumb_spread = 0.0
         self.pinch_strength = 0.75
         self.gesture = "unknown"
+        self.world_landmarks = np.zeros((21, 3), dtype=np.float64)
+
+
+class ExperimentalMapper:
+    def __init__(self, joints, *_args, **_kwargs):
+        self.num_joints = len(joints)
+
+    def reset(self, _current_positions=None):
+        return None
+
+    def map_observation(self, _observation):
+        return [0.0] * self.num_joints, {}
 
 
 class SequenceRecognizer:
@@ -125,6 +137,7 @@ def test_main_sends_safe_return_commands_when_tracking_is_lost(monkeypatch):
     monkeypatch.setattr(app, "load_config", lambda _path: config)
     monkeypatch.setattr(app, "GestureRecognizer", lambda **_kwargs: SequenceRecognizer())
     monkeypatch.setattr(app, "GestureMapper", lambda *_args, **_kwargs: mapper)
+    monkeypatch.setattr(app, "DexPilot6DofMapper", ExperimentalMapper)
     monkeypatch.setattr(app, "make_driver", lambda _cfg, _names: driver)
     monkeypatch.setattr(app.cv2, "VideoCapture", lambda *_args: ThreeFrameCamera())
     monkeypatch.setattr(app.cv2, "waitKey", lambda _delay: next(keys))

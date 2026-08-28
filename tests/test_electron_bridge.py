@@ -11,6 +11,8 @@ from electron_bridge import (
     KEY_MODE_GESTURE,
     KEY_MODE_MIRROR,
     KEY_MODE_RPS,
+    KEY_RETARGETING_DEXPILOT,
+    KEY_RETARGETING_STABLE,
     KEY_TOGGLE_DETECTION,
     ElectronBridge,
     parse_command_line,
@@ -27,6 +29,14 @@ def test_parse_command_line_maps_only_existing_keyboard_actions():
     assert parse_command_line('{"type":"command","command":"mode_mirror"}') == KEY_MODE_MIRROR
     assert parse_command_line('{"type":"command","command":"mode_gesture"}') == KEY_MODE_GESTURE
     assert parse_command_line('{"type":"command","command":"mode_rps"}') == KEY_MODE_RPS
+    assert (
+        parse_command_line('{"type":"command","command":"retargeting_stable"}')
+        == KEY_RETARGETING_STABLE
+    )
+    assert (
+        parse_command_line('{"type":"command","command":"retargeting_dexpilot"}')
+        == KEY_RETARGETING_DEXPILOT
+    )
     assert parse_command_line('{"type":"command","command":"shell"}') is None
     assert parse_command_line('{"type":"frame","command":"quit"}') is None
     assert parse_command_line('{"type":"command","command":[]}') is None

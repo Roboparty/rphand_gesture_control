@@ -22,9 +22,11 @@ def test_packaged_diagnostic_stream_is_reconfigured_to_utf8():
 class Observation:
     detected = True
     curls = {"thumb": 0.5, "index": 0.5}
+    finger_retractions = {"middle": 0.0, "ring": 0.0, "pinky": 0.0}
     thumb_spread = 0.0
     pinch_strength = 0.0
     gesture = "unknown"
+    world_landmarks = np.zeros((21, 3), dtype=np.float64)
 
 
 class Recognizer:
@@ -43,8 +45,9 @@ class Recognizer:
 
 
 class Mapper:
-    joint_names = ["joint_1"]
-    num_joints = 1
+    def __init__(self, joint_names=None):
+        self.joint_names = list(joint_names or ["joint_1"])
+        self.num_joints = len(self.joint_names)
 
     def calibrate_inputs(self, values):
         return dict(values)
@@ -55,10 +58,31 @@ class Mapper:
         pinch_strength=0.0,
         finger_retractions=None,
     ):
-        return [5000.0]
+        return [5000.0] * self.num_joints
 
     def map_preset(self, _gesture):
         return None
+
+
+class ExperimentalMapper:
+    def __init__(self, joints, *_args, **_kwargs):
+        self.num_joints = len(joints)
+        self.reset_calls = []
+
+    def reset(self, current_positions=None):
+        self.reset_calls.append(
+            None if current_positions is None else list(current_positions)
+        )
+
+    def map_observation(self, _observation):
+        return [7000.0] * self.num_joints, {
+            "thumb": 0.7,
+            "thumb_spread": 0.7,
+            "index": 0.7,
+            "middle": 0.7,
+            "ring": 0.7,
+            "pinky": 0.7,
+        }
 
 
 class Camera:
@@ -167,6 +191,7 @@ def test_electron_bridge_reuses_the_existing_emergency_stop_branch(monkeypatch):
     monkeypatch.setattr(app, "load_config", lambda _path: config)
     monkeypatch.setattr(app, "GestureRecognizer", lambda **_kwargs: Recognizer())
     monkeypatch.setattr(app, "GestureMapper", lambda *_args, **_kwargs: Mapper())
+    monkeypatch.setattr(app, "DexPilot6DofMapper", ExperimentalMapper)
     monkeypatch.setattr(app, "make_driver", lambda _cfg, _names: driver)
     monkeypatch.setattr(app.cv2, "VideoCapture", lambda *_args: Camera())
     monkeypatch.setattr(
@@ -207,12 +232,13 @@ def _run_bridge_session(
     *,
     monotonic_times=None,
     safe_return_duration_s=1.2,
+    joints=None,
 ):
     config = deepcopy(app.load_config("config.yaml"))
     config["camera"]["mirror"] = False
     config["control"]["mode"] = "mirror"
     config["control"]["send_rate_hz"] = 1000
-    config["hand"]["joints"] = [
+    config["hand"]["joints"] = joints or [
         {"name": "joint_1", "src": "index", "range": [0, 10000]}
     ]
     config["safety"] = {
@@ -225,10 +251,12 @@ def _run_bridge_session(
     driver = Driver()
     bridge = FakeBridge(keys)
     recognizer = Recognizer()
+    mapper = Mapper([joint["name"] for joint in config["hand"]["joints"]])
 
     monkeypatch.setattr(app, "load_config", lambda _path: config)
     monkeypatch.setattr(app, "GestureRecognizer", lambda **_kwargs: recognizer)
-    monkeypatch.setattr(app, "GestureMapper", lambda *_args, **_kwargs: Mapper())
+    monkeypatch.setattr(app, "GestureMapper", lambda *_args, **_kwargs: mapper)
+    monkeypatch.setattr(app, "DexPilot6DofMapper", ExperimentalMapper)
     monkeypatch.setattr(app, "make_driver", lambda _cfg, _names: driver)
     monkeypatch.setattr(app.cv2, "VideoCapture", lambda *_args: Camera())
     monkeypatch.setattr(app.cv2, "destroyAllWindows", lambda: None)
@@ -257,6 +285,52 @@ def test_electron_bridge_can_select_an_explicit_mode(monkeypatch):
 
     assert result == 0
     assert [state["mode"] for state in bridge.states] == ["mirror", "gesture"]
+
+
+def test_retargeting_can_switch_to_dexpilot_and_back_without_stopping_driver(
+    monkeypatch,
+):
+    joints = [
+        {"name": name, "src": source, "range": [0, 10000]}
+        for name, source in (
+            ("thumb_bend", "thumb"),
+            ("thumb_rotate", "thumb_spread"),
+            ("index_finger", "index"),
+            ("middle_finger", "middle"),
+            ("ring_finger", "ring"),
+            ("pinky_finger", "pinky"),
+        )
+    ]
+
+    result, bridge, _recognizer, driver = _run_bridge_session(
+        monkeypatch,
+        [
+            app.KEY_RETARGETING_DEXPILOT,
+            0,
+            app.KEY_RETARGETING_STABLE,
+            ord("q"),
+        ],
+        joints=joints,
+    )
+
+    assert result == 0
+    assert [state["retargeting_strategy"] for state in bridge.states] == [
+        "stable",
+        "dexpilot",
+        "dexpilot",
+        "stable",
+    ]
+    assert [state["retargeting_effective"] for state in bridge.states] == [
+        "stable",
+        "dexpilot",
+        "dexpilot",
+        "stable",
+    ]
+    assert driver.stop_calls == 0
+    assert all(
+        len(command) == 6 and all(np.isfinite(value) for value in command)
+        for command in driver.commands
+    )
 
 
 def test_disabling_detection_keeps_frames_but_skips_recognition(monkeypatch):
