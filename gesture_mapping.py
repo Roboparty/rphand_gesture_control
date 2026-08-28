@@ -10,6 +10,14 @@ from typing import Dict, List, Optional
 FINGERS = ("thumb", "index", "middle", "ring", "pinky")
 
 
+def project_normalized_value(value: float, joint: dict) -> float:
+    """把归一化输入安全投影到关节配置的硬件范围。"""
+
+    lo, hi = joint["range"]
+    unit = min(max(float(value), 0.0), 1.0)
+    return lo + (hi - lo) * unit
+
+
 class GestureMapper:
     """把识别器输出的归一化手部数据转换成各关节目标位置。
 
@@ -140,10 +148,9 @@ class GestureMapper:
         calibrated = self._apply_pinch_assist(calibrated, pinch_strength)
         out = []
         for j in self._joints:
-            lo, hi = j["range"]
             src = j.get("src")
             curl = calibrated.get(src, 0.0) if src else 0.0
-            out.append(lo + (hi - lo) * curl)
+            out.append(project_normalized_value(curl, j))
         return out
 
     def map_preset(self, gesture: str) -> Optional[List[float]]:
