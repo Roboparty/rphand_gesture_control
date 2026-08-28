@@ -14,8 +14,8 @@ test('exposes stable and experimental retargeting strategies in the GUI', () => 
   assert.match(html, /aria-checked="true"/);
   assert.match(html, /<label for="retargeting-select">映射算法<\/label>/);
   assert.match(html, /id="retargeting-select"/);
-  assert.match(html, /value="stable"[^>]*>轻量映射（稳定）/);
-  assert.match(html, /value="dexpilot"[^>]*>DexPilot 6DOF（实验）/);
+  assert.match(html, /value="stable"[^>]*>CurlMap/);
+  assert.match(html, /value="dexpilot"[^>]*>DexPilot/);
   assert.match(
     appJs,
     /sendCommand\(`retargeting_\$\{retargetingSelect\.value\}`\)/,
