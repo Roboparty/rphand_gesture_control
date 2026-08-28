@@ -156,6 +156,37 @@ def test_real_hardware_pinky_only_closed_sample_reaches_full_travel():
     assert positions[5] >= 9800
 
 
+def test_real_hardware_ring_only_closed_sample_reaches_full_travel():
+    config_path = Path(__file__).resolve().parents[1] / "config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    mapper = GestureMapper(
+        config["hand"]["joints"],
+        config["presets"],
+        config["hand"]["input_calibration"],
+        config["hand"]["pinch_assist"],
+        config["hand"]["finger_retargeting"],
+    )
+    open_sample = {
+        "thumb": 0.2057,
+        "thumb_spread": 0.1617,
+        "index": 0.2576,
+        "middle": 0.2607,
+        "ring": 0.1893,
+        "pinky": 0.2296,
+    }
+    # 由真机截图中的 6904 反推：0.03 + 0.6904 * (0.46 - 0.03)。
+    observed_retractions = {"middle": 0.0, "ring": 0.326872, "pinky": 0.0}
+
+    positions = mapper.map_mirror(
+        open_sample,
+        finger_retractions=observed_retractions,
+    )
+
+    assert positions[:4] == pytest.approx([0.0] * 4)
+    assert positions[4] >= 9800
+    assert positions[5] == pytest.approx(0.0)
+
+
 def test_pinch_assist_progressively_enhances_only_configured_sources():
     mapper = GestureMapper(PINCH_JOINTS, {}, {}, PINCH_ASSIST)
     inputs = {"thumb": 0.0, "thumb_spread": 0.0, "index": 0.0, "middle": 0.2}
