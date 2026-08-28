@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Tuple
 import mediapipe as mp
 import numpy as np
 
+from finger_retargeting import TARGET_FINGER_INDICES, compute_tip_retractions
+
 FINGERS = ("thumb", "index", "middle", "ring", "pinky")
 
 # MediaPipe 21 个关键点的索引
@@ -44,6 +46,9 @@ class HandObservation:
     # 它们不用于绘图，因为它们不是图像像素坐标。
     world_landmarks: Optional[np.ndarray] = None    # (21, 3) MediaPipe 世界坐标
     curls: Dict[str, float] = field(default_factory=lambda: {f: 0.0 for f in FINGERS})
+    finger_retractions: Dict[str, float] = field(
+        default_factory=lambda: {f: 0.0 for f in TARGET_FINGER_INDICES}
+    )
     thumb_spread: float = 0.0                       # 拇指侧摆张角 0=贴掌 1=张开
     pinch_strength: float = 0.0                     # 拇指与食指捏合强度 0=分开 1=接触
     gesture: str = "none"
@@ -114,6 +119,9 @@ class GestureRecognizer:
         # 指数滑动平均平滑, 抑制关键点抖动
         self._alpha = 1.0 - min(max(smooth_factor, 0.0), 1.0)
         self._smooth_curls: Dict[str, float] = {f: 0.0 for f in FINGERS}
+        self._smooth_retractions: Dict[str, float] = {
+            f: 0.0 for f in TARGET_FINGER_INDICES
+        }
         self._smooth_spread: float = 0.0
         self._smooth_pinch_strength: float = 0.0
 
@@ -128,6 +136,7 @@ class GestureRecognizer:
         obs = HandObservation()
         if not results.multi_hand_landmarks:
             self._smooth_curls = {f: 0.0 for f in FINGERS}
+            self._smooth_retractions = {f: 0.0 for f in TARGET_FINGER_INDICES}
             self._smooth_spread = 0.0
             self._smooth_pinch_strength = 0.0
             return obs
@@ -165,6 +174,13 @@ class GestureRecognizer:
         for f in FINGERS:
             self._smooth_curls[f] = self._alpha * raw[f] + (1 - self._alpha) * self._smooth_curls[f]
         obs.curls = dict(self._smooth_curls)
+        raw_retractions = compute_tip_retractions(geometry_lm)
+        for finger in TARGET_FINGER_INDICES:
+            self._smooth_retractions[finger] = (
+                self._alpha * raw_retractions[finger]
+                + (1 - self._alpha) * self._smooth_retractions[finger]
+            )
+        obs.finger_retractions = dict(self._smooth_retractions)
         raw_spread = self._compute_thumb_spread(geometry_lm)
         self._smooth_spread = self._alpha * raw_spread + (1 - self._alpha) * self._smooth_spread
         obs.thumb_spread = self._smooth_spread

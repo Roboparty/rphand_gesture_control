@@ -11,6 +11,7 @@ class FakeObservation:
     def __init__(self, detected: bool):
         self.detected = detected
         self.curls = {"thumb": 0.8, "index": 0.4}
+        self.finger_retractions = {"middle": 0.31, "ring": 0.27, "pinky": 0.44}
         self.thumb_spread = 0.0
         self.pinch_strength = 0.75
         self.gesture = "unknown"
@@ -38,12 +39,19 @@ class TwoJointMapper:
 
     def __init__(self):
         self.pinch_strengths = []
+        self.finger_retractions = []
 
     def calibrate_inputs(self, values):
         return dict(values)
 
-    def map_mirror(self, _values, pinch_strength=0.0):
+    def map_mirror(
+        self,
+        _values,
+        pinch_strength=0.0,
+        finger_retractions=None,
+    ):
         self.pinch_strengths.append(pinch_strength)
+        self.finger_retractions.append(finger_retractions)
         return [8000.0, 4000.0]
 
     def map_preset(self, _gesture):
@@ -135,3 +143,6 @@ def test_main_sends_safe_return_commands_when_tracking_is_lost(monkeypatch):
         [0.0, 0.0],
     ]
     assert mapper.pinch_strengths == [0.75]
+    assert mapper.finger_retractions == [
+        {"middle": 0.31, "ring": 0.27, "pinky": 0.44}
+    ]

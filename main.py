@@ -325,6 +325,7 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
         cfg.get("presets", {}),
         cfg["hand"].get("input_calibration", {}),
         cfg["hand"].get("pinch_assist", {}),
+        cfg["hand"].get("finger_retargeting", {}),
     )
     if bridge is not None:
         bridge.publish_status(
@@ -432,6 +433,13 @@ def _run(cfg: dict, args, resources: RuntimeResources, bridge=None) -> int:
                 positions = mapper.map_mirror(
                     vals,
                     pinch_strength=obs.pinch_strength,
+                    # 旧观测对象没有该字段时传 None，映射器会完整回退到
+                    # 原来的单角度路径，便于 A/B 测试和旧数据重放。
+                    finger_retractions=getattr(
+                        obs,
+                        "finger_retractions",
+                        None,
+                    ),
                 )
             elif mode == "rps":
                 rps_decision = rps_controller.update(

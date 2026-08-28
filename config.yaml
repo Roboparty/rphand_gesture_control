@@ -64,6 +64,17 @@ hand:
       thumb_spread: 0.60
       index: 0.85
 
+  # 3/4/5 指轻量重定向实验。回缩量由 MCP-PIP-DIP-TIP 的完整骨链计算，
+  # 与旧单角度结果取较强值；关闭 enabled 可立即恢复旧映射。
+  # 小指和无名指闭合端点来自 2026-08-28 真机单独闭合样本；中指暂不调整。
+  finger_retargeting:
+    enabled: true
+    fusion: max
+    calibration:
+      middle: { open: 0.03, closed: 0.48 }
+      ring:   { open: 0.03, closed: 0.33 }
+      pinky:  { open: 0.03, closed: 0.285 }
+
   # 关节通道定义 (默认按 6 主动自由度型号, 与厂商示例一致)。
   # 位置范围 0~10000: 0=张开, 10000=完全弯曲 (与厂商示例 main.py 一致)。
   # 若实际方向相反, 把 range 两个数对调即可, 如 [10000, 0]。

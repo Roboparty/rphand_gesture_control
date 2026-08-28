@@ -49,7 +49,12 @@ class Mapper:
     def calibrate_inputs(self, values):
         return dict(values)
 
-    def map_mirror(self, _values, pinch_strength=0.0):
+    def map_mirror(
+        self,
+        _values,
+        pinch_strength=0.0,
+        finger_retractions=None,
+    ):
         return [5000.0]
 
     def map_preset(self, _gesture):
