@@ -6,6 +6,7 @@ const {
   commandLine,
   parseBackendLine,
   parseFrameLine,
+  resolveBackendEnvironment,
   resolvePythonLaunch,
 } = require('../bridge-protocol.cjs');
 
@@ -195,7 +196,11 @@ test('rejects malformed Electron telemetry instead of rendering unsafe values', 
 test('launches the physical hand driver from Electron by default', () => {
   const projectRoot = path.resolve('C:/repo');
 
-  assert.deepEqual(resolvePythonLaunch({ projectRoot, packaged: false }), {
+  assert.deepEqual(resolvePythonLaunch({
+    projectRoot,
+    packaged: false,
+    platform: 'win32',
+  }), {
     executable: path.join(projectRoot, '.venv', 'Scripts', 'python.exe'),
     args: [
       path.join(projectRoot, 'main.py'),
@@ -210,6 +215,7 @@ test('launches the physical hand driver from Electron by default', () => {
       projectRoot,
       packaged: true,
       resourcesPath: path.resolve('C:/app/resources'),
+      platform: 'win32',
     }),
     {
       executable: path.resolve('C:/app/resources/RP-Hand/RP-Hand.exe'),
@@ -223,7 +229,78 @@ test('allows Electron development to explicitly use the simulator', () => {
   const projectRoot = path.resolve('C:/repo');
 
   assert.deepEqual(
-    resolvePythonLaunch({ projectRoot, packaged: false, driver: 'sim' }).args,
+    resolvePythonLaunch({
+      projectRoot,
+      packaged: false,
+      platform: 'win32',
+      driver: 'sim',
+    }).args,
     [path.join(projectRoot, 'main.py'), '--electron-bridge', '--driver', 'sim'],
+  );
+});
+
+test('uses native Linux backend paths for packaged and development launches', () => {
+  const projectRoot = path.resolve('/repo');
+  const resourcesPath = path.resolve('/opt/RP-Hand Gesture/resources');
+
+  assert.deepEqual(
+    resolvePythonLaunch({
+      projectRoot,
+      packaged: true,
+      resourcesPath,
+      platform: 'linux',
+    }),
+    {
+      executable: path.join(resourcesPath, 'RP-Hand', 'RP-Hand'),
+      args: ['--electron-bridge', '--driver', 'lhandpro'],
+      cwd: path.join(resourcesPath, 'RP-Hand'),
+    },
+  );
+  assert.deepEqual(
+    resolvePythonLaunch({
+      projectRoot,
+      packaged: false,
+      platform: 'linux',
+      driver: 'sim',
+    }),
+    {
+      executable: path.join(projectRoot, '.venv', 'bin', 'python'),
+      args: [
+        path.join(projectRoot, 'main.py'),
+        '--electron-bridge',
+        '--driver',
+        'sim',
+      ],
+      cwd: projectRoot,
+    },
+  );
+});
+
+test('selects bundled libcanbus only for packaged Linux backends', () => {
+  const baseEnvironment = { PATH: '/usr/bin' };
+
+  assert.deepEqual(
+    resolveBackendEnvironment({
+      environment: baseEnvironment,
+      packaged: true,
+      platform: 'linux',
+    }),
+    { PATH: '/usr/bin', SDK_CANFD_DRIVER: 'libcanbus' },
+  );
+  assert.deepEqual(
+    resolveBackendEnvironment({
+      environment: { ...baseEnvironment, SDK_CANFD_DRIVER: 'socketcan' },
+      packaged: true,
+      platform: 'linux',
+    }),
+    { PATH: '/usr/bin', SDK_CANFD_DRIVER: 'socketcan' },
+  );
+  assert.deepEqual(
+    resolveBackendEnvironment({
+      environment: baseEnvironment,
+      packaged: true,
+      platform: 'win32',
+    }),
+    baseEnvironment,
   );
 });

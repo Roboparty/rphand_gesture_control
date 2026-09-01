@@ -20,6 +20,12 @@ electron/node_modules/
 electron/dist/
 electron/release*/
 *.egg-info/
+artifacts/
+packaging/linux/vendor-sdk*.tar.gz
+
+# Local agent planning notes
+docs/superpowers/plans/2026-09-01-ubuntu-22-deb-packaging.md
+docs/superpowers/specs/2026-09-01-ubuntu-22-deb-packaging-design.md
 
 # Runtime and generated diagnostics
 *.log

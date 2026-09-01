@@ -1,0 +1,14 @@
+.git
+.gitignore
+.pytest_cache
+.venv
+__pycache__
+artifacts
+build
+dist
+docs/superpowers
+electron/dist
+electron/node_modules
+electron/release*
+*.log
+test-output

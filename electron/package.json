@@ -3,6 +3,7 @@
   "version": "1.1.1",
   "description": "RP-Hand Gesture desktop interface",
   "author": "RoboParty",
+  "homepage": "https://github.com/Roboparty/rphand_gesture_control",
   "license": "MIT",
   "private": true,
   "main": "main.cjs",
@@ -10,7 +11,9 @@
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
     "build:python": "powershell -ExecutionPolicy Bypass -File build-python.ps1",
-    "dist:win": "npm run test && npm run build:python && electron-builder --win nsis"
+    "build:python:linux": "bash ../packaging/linux/build-python.sh",
+    "dist:win": "npm run test && npm run build:python && electron-builder --win nsis",
+    "dist:linux": "npm test && npm run build:python:linux && electron-builder --linux deb --x64 --config.productName=RP-Hand-Gesture"
   },
   "devDependencies": {
     "electron": "44.0.0",
@@ -30,6 +33,7 @@
       "bridge-protocol.cjs",
       "log-forwarder.cjs",
       "process-termination.cjs",
+      "window-icon.cjs",
       "renderer/**/*"
     ],
     "extraResources": [
@@ -41,6 +45,41 @@
     "win": {
       "target": "nsis",
       "icon": "../assets/icon.ico"
+    },
+    "linux": {
+      "target": "deb",
+      "icon": "../assets/icon-linux-256.png",
+      "category": "Utility",
+      "maintainer": "RoboParty",
+      "vendor": "RoboParty",
+      "executableName": "rp-hand-gesture",
+      "artifactName": "RP-Hand-Gesture-${version}-${arch}.${ext}",
+      "desktop": {
+        "entry": {
+          "Name": "RP-Hand Gesture",
+          "Comment": "Camera-based gesture control for RP-Hand",
+          "Categories": "Utility;Robotics;"
+        }
+      }
+    },
+    "deb": {
+      "packageName": "rp-hand-gesture",
+      "packageCategory": "utils",
+      "depends": [
+        "libgl1",
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libusb-1.0-0"
+      ],
+      "afterInstall": "../packaging/linux/after-install.sh",
+      "afterRemove": "../packaging/linux/after-remove.sh"
     },
     "nsis": {
       "oneClick": false,

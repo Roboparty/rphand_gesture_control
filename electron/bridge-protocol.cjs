@@ -165,6 +165,7 @@ function resolvePythonLaunch({
   packaged,
   resourcesPath,
   driver = 'lhandpro',
+  platform = process.platform,
 }) {
   if (!['sim', 'lhandpro'].includes(driver)) {
     throw new Error(`Unsupported driver: ${driver}`);
@@ -173,21 +174,37 @@ function resolvePythonLaunch({
   if (packaged) {
     const cwd = path.join(resourcesPath, 'RP-Hand');
     return {
-      executable: path.join(cwd, 'RP-Hand.exe'),
+      executable: path.join(cwd, platform === 'win32' ? 'RP-Hand.exe' : 'RP-Hand'),
       args: driverArgs,
       cwd,
     };
   }
+  const python = platform === 'win32'
+    ? path.join(projectRoot, '.venv', 'Scripts', 'python.exe')
+    : path.join(projectRoot, '.venv', 'bin', 'python');
   return {
-    executable: path.join(projectRoot, '.venv', 'Scripts', 'python.exe'),
+    executable: python,
     args: [path.join(projectRoot, 'main.py'), ...driverArgs],
     cwd: projectRoot,
   };
+}
+
+function resolveBackendEnvironment({
+  environment = process.env,
+  packaged,
+  platform = process.platform,
+}) {
+  const resolved = { ...environment };
+  if (packaged && platform === 'linux' && !resolved.SDK_CANFD_DRIVER) {
+    resolved.SDK_CANFD_DRIVER = 'libcanbus';
+  }
+  return resolved;
 }
 
 module.exports = {
   commandLine,
   parseBackendLine,
   parseFrameLine,
+  resolveBackendEnvironment,
   resolvePythonLaunch,
 };
