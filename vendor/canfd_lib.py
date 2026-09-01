@@ -28,6 +28,18 @@ class CANFDException(Exception):
     pass
 
 
+def _linux_library_candidates(library_name: str, module_dir: Optional[str] = None):
+    """Return bundled-first candidates for Linux native transport libraries."""
+
+    base_dir = module_dir or os.path.dirname(os.path.abspath(__file__))
+    return [
+        os.path.join(base_dir, "lib", "linux", "x86_64", library_name),
+        os.path.join(base_dir, "lib", library_name),
+        os.path.join("/usr/local/lib", library_name),
+        library_name,
+    ]
+
+
 def _len_to_dlc(length: int) -> int:
     if length <= 8:
         return length
@@ -539,11 +551,49 @@ else:
             self._receive_callback: Optional[Callable] = None
 
         def _load_library(self):
+            errors = []
             try:
-                CDLL("/usr/local/lib/libusb-1.0.so", RTLD_GLOBAL)
-                self._libcan = cdll.LoadLibrary("/usr/local/lib/libcanbus.so")
+                # Load the distribution's libusb globally so the vendor
+                # transport can resolve it without installing a private copy.
+                from ctypes.util import find_library
+                libusb = find_library("usb-1.0") or "libusb-1.0.so.0"
+                CDLL(libusb, RTLD_GLOBAL)
             except Exception as exc:
-                raise CANFDException(f"加载 CANFD 动态库失败: {exc}")
+                raise CANFDException(f"加载 libusb 失败: {exc}")
+
+            for candidate in _linux_library_candidates("libcanbus.so"):
+                if os.path.isabs(candidate) and not os.path.exists(candidate):
+                    continue
+                try:
+                    self._libcan = cdll.LoadLibrary(candidate)
+                    self._bind_libcanbus_symbols()
+                    return
+                except Exception as exc:
+                    errors.append(f"{candidate}: {exc}")
+            raise CANFDException("加载 CANFD 动态库失败: " + "; ".join(errors))
+
+        def _bind_libcanbus_symbols(self) -> None:
+            """Bind the channel-aware ABI exported by the vendor Linux SDK."""
+            lib = self._libcan
+            lib.CAN_ScanDevice.argtypes = []
+            lib.CAN_ScanDevice.restype = c_int
+
+            lib.CAN_OpenDevice.argtypes = [c_int, c_int]
+            lib.CAN_OpenDevice.restype = c_int
+
+            lib.CAN_CloseDevice.argtypes = [c_int, c_int]
+            lib.CAN_CloseDevice.restype = c_int
+
+            lib.CANFD_Init.argtypes = [c_int, c_int, POINTER(_CanFD_Config)]
+            lib.CANFD_Init.restype = c_int
+
+            lib.CANFD_Transmit.argtypes = [
+                c_int, c_int, POINTER(_CanFD_Msg), c_int, c_int]
+            lib.CANFD_Transmit.restype = c_int
+
+            lib.CANFD_Receive.argtypes = [
+                c_int, c_int, POINTER(_CanFD_Msg), c_int, c_int]
+            lib.CANFD_Receive.restype = c_int
 
         def scan(self) -> int:
             try:
@@ -580,7 +630,8 @@ else:
                 can_initconfig.DatTseg2 = 4
                 can_initconfig.DatSJW = 2
 
-                ret = self._libcan.CANFD_Init(device_index, byref(can_initconfig))
+                ret = self._libcan.CANFD_Init(
+                    device_index, channel_index, byref(can_initconfig))
                 if ret != STATUS_OK:
                     self._libcan.CAN_CloseDevice(device_index, channel_index)
                     raise CANFDException(f"初始化 CANFD 失败，错误码: {ret}")
@@ -634,6 +685,7 @@ else:
 
                 ret = self._libcan.CANFD_Transmit(
                     self._device_index,
+                    self._channel_index,
                     byref(send_canmsg),
                     1,
                     100,
@@ -663,6 +715,7 @@ else:
                 while not self._receive_stop_event.is_set():
                     ret = self._libcan.CANFD_Receive(
                         self._device_index,
+                        self._channel_index,
                         receive_canmsg,
                         self._RECV_BUF_SIZE,
                         self._RECV_TIMEOUT_MS,

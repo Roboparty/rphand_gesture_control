@@ -13,6 +13,7 @@ const readline = require('node:readline');
 const {
   commandLine,
   parseBackendLine,
+  resolveBackendEnvironment,
   resolvePythonLaunch,
 } = require('./bridge-protocol.cjs');
 const {
@@ -22,6 +23,7 @@ const {
 const { attachLogForwarder } = require('./log-forwarder.cjs');
 const { terminateProcessTree } = require('./process-termination.cjs');
 const { computeWindowSize } = require('./renderer/layout.cjs');
+const { resolveWindowIcon } = require('./window-icon.cjs');
 
 let mainWindow = null;
 let pythonProcess = null;
@@ -54,11 +56,17 @@ function startPython() {
       packaged: app.isPackaged,
       resourcesPath: process.resourcesPath,
       driver,
+      platform: process.platform,
     });
     child = spawn(launch.executable, launch.args, {
       cwd: launch.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
+      env: resolveBackendEnvironment({
+        environment: process.env,
+        packaged: app.isPackaged,
+        platform: process.platform,
+      }),
     });
   } catch (error) {
     lifecycle.accept({
@@ -194,7 +202,12 @@ function createWindow() {
     backgroundColor: '#000000',
     autoHideMenuBar: true,
     show: false,
-    icon: path.resolve(__dirname, '..', 'assets', 'icon.ico'),
+    icon: resolveWindowIcon({
+      packaged: app.isPackaged,
+      platform: process.platform,
+      projectRoot: path.resolve(__dirname, '..'),
+      executablePath: process.execPath,
+    }),
     // 渲染页不获得 Node 权限，只能通过 preload 暴露的最小 IPC 接口通信。
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

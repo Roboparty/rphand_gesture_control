@@ -92,8 +92,8 @@ class LHandProDriver(BaseHandDriver):
             # 控制器内部创建 PyLHandProLib() 时会直接复用
             from lhandprolib_python_sdk.lhandprolib_loader import (
                 get_global_lhandprolib_lib)
-            from app_paths import resolve_app_path
-            lib_path = resolve_app_path(self._library_path)
+            from app_paths import resolve_lhandpro_library_path
+            lib_path = resolve_lhandpro_library_path(self._library_path)
             if not os.path.exists(lib_path):
                 print(f"[LHandPro] 找不到动态库: {lib_path}\n"
                       f"  请在 config.yaml 的 driver.canfd.library_path 填写正确路径")
